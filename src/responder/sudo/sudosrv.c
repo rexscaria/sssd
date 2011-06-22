@@ -2,6 +2,8 @@
    SSSD
 
    SUDO Responder
+   
+   Author - Arun Scaria <arunscaria91@gmail.com>
 
    Copyright (C)  Arun Scaria <arunscaria91@gmail.com> (2011)
 

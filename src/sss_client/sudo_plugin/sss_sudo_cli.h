@@ -6,7 +6,7 @@
     Authors:
         Arun Scaria <arunscaria91@gmail.com>
 
-    Copyright (C) 2011 Red Hat
+    Copyright (C) 2011 Arun Scaria <arunscaria91@gmail.com>
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by

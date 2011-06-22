@@ -6,12 +6,15 @@
     Authors:
         Arun Scaria <arunscaria91@gmail.com>
 
-    Copyright (C) 2011 Red Hat
+    Copyright (C) 2011 Arun Scaria <arunscaria91@gmail.com>.
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation; either version 3 of the License, or
     (at your option) any later version.
+    
+    The coding of some of the components in this programe is based on the 
+    code adapted from the sudo project at www.sudo.ws
 
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of

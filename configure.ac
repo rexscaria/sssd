@@ -73,6 +73,7 @@ m4_include([src/external/platform.m4])
 m4_include(src/conf_macros.m4)
 WITH_DB_PATH
 WITH_PLUGIN_PATH
+WITH_SUDO_PLUGIN_PATH
 WITH_PID_PATH
 WITH_LOG_PATH
 WITH_PUBCONF_PATH

@@ -24,7 +24,7 @@ dbusintrospectdir = $(datarootdir)/sssd/introspect
 localedir = @localedir@
 nsslibdir = @nsslibdir@
 pamlibdir = @pammoddir@
-libsss_sudoplugindir = $(libexecdir)
+libsss_sudoplugindir = @sudo_pluginpath@
 
 dbpath = @dbpath@
 pluginpath = @pluginpath@
@@ -193,8 +193,7 @@ AM_CPPFLAGS = \
     -DSSS_NSS_SOCKET_NAME=\"$(pipepath)/nss\" \
     -DSSS_PAM_SOCKET_NAME=\"$(pipepath)/pam\" \
     -DSSS_PAM_PRIV_SOCKET_NAME=\"$(pipepath)/private/pam\" \
-    -DLOCALEDIR=\"$(localedir)\" \
-    -D_GNU_SOURCE
+    -DLOCALEDIR=\"$(localedir)\"
 
 EXTRA_DIST = build/config.rpath
 
@@ -778,7 +777,11 @@ libsss_sudoplugin_la_LDFLAGS = \
     -module \
     -lpam \
     -lpam_misc \
-    `pkg-config --cflags --libs dbus-1`  
+    $(DBUS_LIBS)
+
+libsss_sudoplugin_CPPFLAGS = \
+     $(AM_CPPFLAGS) \
+     -D_GNU_SOURCE
     
 
 ####################
