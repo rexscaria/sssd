@@ -24,6 +24,7 @@ dbusintrospectdir = $(datarootdir)/sssd/introspect
 localedir = @localedir@
 nsslibdir = @nsslibdir@
 pamlibdir = @pammoddir@
+libsss_sudoplugindir = $(libexecdir)
 
 dbpath = @dbpath@
 pluginpath = @pluginpath@
@@ -63,7 +64,8 @@ sssdlibexec_PROGRAMS = \
     sssd_be \
     krb5_child \
     ldap_child \
-    proxy_child
+    proxy_child \
+    sssd_sudo
 
 if HAVE_CHECK
     non_interactive_check_based_tests = \
@@ -191,7 +193,8 @@ AM_CPPFLAGS = \
     -DSSS_NSS_SOCKET_NAME=\"$(pipepath)/nss\" \
     -DSSS_PAM_SOCKET_NAME=\"$(pipepath)/pam\" \
     -DSSS_PAM_PRIV_SOCKET_NAME=\"$(pipepath)/private/pam\" \
-    -DLOCALEDIR=\"$(localedir)\"
+    -DLOCALEDIR=\"$(localedir)\" \
+    -D_GNU_SOURCE
 
 EXTRA_DIST = build/config.rpath
 
@@ -394,6 +397,13 @@ sssd_pam_SOURCES = \
     src/responder/pam/pamsrv_dp.c \
     $(SSSD_RESPONDER_OBJ)
 sssd_pam_LDADD = \
+    $(TDB_LIBS) \
+    $(SSSD_LIBS) \
+    libsss_util.la
+
+sssd_sudo_SOURCES = \
+    src/responder/sudo/sudosrv.c
+sssd_sudo_LDADD = \
     $(TDB_LIBS) \
     $(SSSD_LIBS) \
     libsss_util.la
@@ -757,6 +767,19 @@ pam_sss_la_LDFLAGS = \
 dist_noinst_DATA += \
     src/sss_client/sss_nss.exports \
     src/sss_client/sss_pam.exports
+
+libsss_sudoplugin_LTLIBRARIES = libsss_sudoplugin.la
+libsss_sudoplugin_la_SOURCES = \
+    src/sss_client/sudo_plugin/sss_sudoplugin.c \
+    src/sss_client/sudo_plugin/sss_sudo_cli.h \
+    src/sss_client/sudo_plugin/missing.h
+
+libsss_sudoplugin_la_LDFLAGS = \
+    -module \
+    -lpam \
+    -lpam_misc \
+    `pkg-config --cflags --libs dbus-1`  
+    
 
 ####################
 # Plugin Libraries #
