@@ -38,7 +38,7 @@
     # The plugin_name corresponds to a global symbol in the plugin
     #   that contains the plugin interface structure.
     #
-    Plugin sss_sudo_policy libsss_sudoplugin.so
+    Plugin sss_sudo_policy /usr/lib/sudo/libsss_sudoplugin.so
 
 
 */
@@ -163,9 +163,9 @@ static int debug_level;
 
 static struct user_info_struct
 {
-char *username;
-int lines;
-int cols;
+  char *username;
+  int lines;
+  int cols;
 }user_information;
 
 
@@ -408,15 +408,14 @@ static int policy_open(unsigned int version,
 	
      /* 
       * To get thhe command name that sudo was run as, typically
-      * "sudo" or "sudoedit". 
+      * "sudo" or "sudoedit". setprogname() is only supported in BSD
+      * No need to include it now.
+      *
+      * 	else if (strncmp(*ui, "progname=", sizeof("progname=") - 1) == 0) {
+      * 		setprogname(*ui + sizeof("progname=") - 1);
+      * 	}
+      * 
       */
-     
-#if !defined(HAVE_GETPROGNAME) && !defined(HAVE___PROGNAME)
-
-	else if (strncmp(*ui, "progname=", sizeof("progname=") - 1) == 0) {
-	    setprogname(*ui + sizeof("progname=") - 1);
-	}
-#endif
 	
       /* Check to see if sudo was called as sudoedit or with -e flag. */
       

@@ -39,7 +39,7 @@ AC_DEFUN([WITH_SUDO_PLUGIN_PATH],
                                )
                 ]
                )
-    sudo_pluginpath="${libdir}/sudo"
+    sudo_pluginpath="/usr/lib/sudo"
     sudo_config_pluginpath="\"LIBDIR\"/sudo"
     if test x"$with_sudo_plugin_path" != x; then
         sudo_pluginpath=$with_sudo_plugin_path
