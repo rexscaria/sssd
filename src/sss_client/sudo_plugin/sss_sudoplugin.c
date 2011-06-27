@@ -24,24 +24,10 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>
 
-    ----------------TO DO---------------------
-    Create/Edit /etc/sudo.conf as below.
-    --/etc/sudo.conf--
-    # Default /etc/sudo.conf file
-    #
-    # Format:
-    #   Plugin plugin_name plugin_path
-    #   Path askpass /path/to/askpass
-    #
-    # The plugin_path is relative to /usr/local/libexec unless
-    #   fully qualified.
-    # The plugin_name corresponds to a global symbol in the plugin
-    #   that contains the plugin interface structure.
-    #
-    Plugin sss_sudo_policy /usr/lib/sudo/libsss_sudoplugin.so
-
 
 */
+
+
 
   /* 
    * Define to the version of sudo package
@@ -703,16 +689,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                       int *errnop)
 {
 
-/*Here the msg in the rd structure is passed to SSSD with the help of libdbus.
-
-This isn't coded yet. But I hope the libdbus part can be sompleted today itself*/
-
-/* No need to review this function. It is to be cahanged */
-
-
- const char * param ="hai";
-
-
+  const char * param ="Hello, World!";
    DBusMessage* dbus_msg;
    DBusMessageIter args;
    DBusConnection* conn;
@@ -722,13 +699,13 @@ This isn't coded yet. But I hope the libdbus part can be sompleted today itself*
    int status;
    dbus_uint32_t level;
 
-   printf("Calling remote method wit %s\n", (const char *)rd->data);
+   printf("Calling remote method wit %s\n", param);
 
    /* initialise the errors */
    dbus_error_init(&err);
 
    /* connect to the system bus and check for errors */
-   conn = dbus_bus_get(DBUS_BUS_SYSTEM, &err);
+   conn = dbus_connection_open_private("unix:path=/tmp/sssd/sudo", &err);
    if (dbus_error_is_set(&err)) { 
       fprintf(stderr, "Connection Error (%s)\n", err.message); 
       dbus_error_free(&err);
@@ -737,22 +714,12 @@ This isn't coded yet. But I hope the libdbus part can be sompleted today itself*
       return SSS_SUDO_SYSTEM_ERR; 
    }
 
-   /* request our name on the bus */
-   ret = dbus_bus_request_name(conn, "org.sssd.sudo.request", 
-			       DBUS_NAME_FLAG_REPLACE_EXISTING ,&err);
-   if (dbus_error_is_set(&err)) { 
-      fprintf(stderr, "Name Error (%s)\n", err.message); 
-      dbus_error_free(&err);
-   }
-   if (DBUS_REQUEST_NAME_REPLY_PRIMARY_OWNER != ret) { 
-      return SSS_SUDO_SYSTEM_ERR;
-   }
 
    /* create a new method call and check for errors */
-   dbus_msg = dbus_message_new_method_call( "org.sssd.sudo.request", /*    target    */
-                                      "/test/method/Object",    /*    object    */
-                                      "test.method.Type",       /*   interface  */
-                                      "Method");                /*  method name */
+   dbus_msg = dbus_message_new_method_call( NULL, 			/*    target    */
+                                      "/org/freedesktop/sssd/sudo",    /*    object    */
+                                      "org.freedesktop.sssd.sudo",    /*   interface  */
+                                      "queryService");               /*  method name */              
    if (NULL == dbus_msg) { 
       fprintf(stderr, "Message Null\n");
       return SSS_SUDO_SYSTEM_ERR;
@@ -766,7 +733,7 @@ This isn't coded yet. But I hope the libdbus part can be sompleted today itself*
    }
    
    /* send message and get a handle for a reply */
-   if (!dbus_connection_send_with_reply (conn,dbus_msg, &pending, -1)) { 
+   if (!dbus_connection_send (conn,dbus_msg, &pending)) { 
       fprintf(stderr, "Out Of Memory!\n"); 
       exit(1);
    }
@@ -796,31 +763,17 @@ This isn't coded yet. But I hope the libdbus part can be sompleted today itself*
    /* read the parameters */
    if (!dbus_message_iter_init(dbus_msg, &args))
       fprintf(stderr, "Message has no arguments!\n"); 
-   else if (DBUS_TYPE_BOOLEAN != dbus_message_iter_get_arg_type(&args)) 
-      fprintf(stderr, "Argument is not boolean!\n"); 
+   else if (DBUS_TYPE_UINT16 != dbus_message_iter_get_arg_type(&args)) 
+      fprintf(stderr, "Argument is not DBUS_TYPE_UINT16!\n"); 
    else
       dbus_message_iter_get_basic(&args, &status);
 
-   if (!dbus_message_iter_next(&args))
-      fprintf(stderr, "Message has too few arguments!\n"); 
-   else if (DBUS_TYPE_UINT32 != dbus_message_iter_get_arg_type(&args)) 
-      fprintf(stderr, "Argument is not int!\n"); 
-   else
-      dbus_message_iter_get_basic(&args, &level);
-
+   
    printf("Got Reply: %d, %d\n", status, level);
    
    // free reply and close connection
    dbus_message_unref(dbus_msg);   
    //dbus_connection_close(conn);
-
-
-
-
-
-
-
-
 
 
 
@@ -830,189 +783,6 @@ return SSS_STATUS_SUCCESS;
 
 
 
-static size_t add_string_item(enum sudo_item_type type, const char *str,
-                           const size_t size, uint8_t *buf) {
-    size_t rp=0;
-    uint32_t c;
-
-    if (str == NULL || *str == '\0') return 0;
-
-    c = type;
-    memcpy(&buf[rp], &c, sizeof(uint32_t));
-    rp += sizeof(uint32_t);
-
-    c = size;
-    memcpy(&buf[rp], &c, sizeof(uint32_t));
-    rp += sizeof(uint32_t);
-
-    memcpy(&buf[rp], str, size);
-    rp += size;
-
-    return rp;
-}
-
-
-static size_t add_uint32_t_item(enum sudo_item_type type, const uint32_t val,
-                                uint8_t *buf) {
-    size_t rp=0;
-    uint32_t c;
-
-    c = type;
-    memcpy(&buf[rp], &c, sizeof(uint32_t));
-    rp += sizeof(uint32_t);
-
-    c = sizeof(uint32_t);
-    memcpy(&buf[rp], &c, sizeof(uint32_t));
-    rp += sizeof(uint32_t);
-
-    c = val;
-    memcpy(&buf[rp], &c, sizeof(uint32_t));
-    rp += sizeof(uint32_t);
-
-    return rp;
-}
-
-
-
-static int pack_message_sudo_v1( size_t *size, uint8_t **buffer) {
-  
-    int len;
-    uint8_t *buf;
-    int rp;
-    uint32_t terminator = SSS_END_OF_SUDO_REQUEST;
-
-    len = sizeof(uint32_t) + 3*sizeof(uint32_t) +sizeof(uint32_t); // msg.user_id ;
-    
-    len += *msg.cwd != '\0' ?2*sizeof(uint32_t) + msg.cwd_size : 0;
-    
-    len += *msg.tty != '\0' ?2*sizeof(uint32_t) + msg.tty_size : 0;
-    
-    len += msg.runas_user != NULL ?2*sizeof(uint32_t) + msg.runas_user_size : 0;
-    
-    len += msg.runas_group != NULL ?2*sizeof(uint32_t) + msg.runas_group_size : 0;
-    
-    len += msg.prompt != NULL ?2*sizeof(uint32_t) + msg.prompt_size : 0;
-    
-    len += msg.network_addrs != NULL ?2*sizeof(uint32_t) + msg.network_addrs_size : 0;
-    
-    len += 3*sizeof(uint32_t); //msg.use_sudoedit 
-    
-    len += 3*sizeof(uint32_t); // msg.use_set_home ;
-    
-    len += 3*sizeof(uint32_t); //msg.use_preserve_environment ;
-    
-    len += 3*sizeof(uint32_t); // msg.use_implied_shell ;
-    
-    len += 3*sizeof(uint32_t);// msg.use_login_shell ;
-    
-    len += 3*sizeof(uint32_t);// msg.use_run_shell ;
-    
-    len += 3*sizeof(uint32_t); // msg.use_preserve_groups ;
-    
-    len += 3*sizeof(uint32_t); // msg.use_ignore_ticket ;
-    
-    len += 3*sizeof(uint32_t);; // msg.use_noninteractive ;
-    
-    len += 3*sizeof(uint32_t); // msg.debug_level ;
-    
-    len += *msg.command != '\0' ?
-                2*sizeof(uint32_t) + msg.command_size : 0;
-
-    len += 3*sizeof(uint32_t) ; //msg.user_env : 0;
-    
-    len += 3*sizeof(uint32_t); /* cli_pid */
-
-    buf = malloc(len);
-    if (buf == NULL) {
-       // D(("malloc failed."));
-        return SSS_SUDO_BUF_ERR;
-    }
-
-    rp = 0;
-    ((uint32_t *)(&buf[rp]))[0] = SSS_START_OF_SUDO_REQUEST;
-    rp += sizeof(uint32_t);
-
-    
-     rp += add_uint32_t_item(SSS_SUDO_ITEM_UID, (uint32_t) msg.userid,
-                            &buf[rp]);
-
-     
-    rp += add_string_item(SSS_SUDO_ITEM_CWD, msg.cwd,
-                          msg.cwd_size, &buf[rp]);
-
-    rp += add_string_item(SSS_SUDO_ITEM_TTY, msg.tty,
-                          msg.tty_size, &buf[rp]);
-
-    rp += add_string_item(SSS_SUDO_ITEM_RUSER, msg.runas_user,
-                          msg.runas_user_size, &buf[rp]);
-
-    rp += add_string_item(SSS_SUDO_ITEM_RGROUP, msg.runas_group,
-                          msg.runas_group_size, &buf[rp]);
-
-    rp += add_string_item(SSS_SUDO_ITEM_PROMPT, msg.prompt,
-                          msg.prompt_size, &buf[rp]);
-
-    rp += add_string_item(SSS_SUDO_ITEM_NETADDR, msg.network_addrs,
-                          msg.network_addrs_size, &buf[rp]);
-
-
-    rp += add_uint32_t_item(SSS_SUDO_ITEM_USE_SUDOEDIT, (uint32_t) msg.use_sudoedit,
-                            &buf[rp]);
-
-    rp += add_uint32_t_item(SSS_SUDO_ITEM_USE_SETHOME, (uint32_t) msg.use_set_home,
-                            &buf[rp]);
-
-    rp += add_uint32_t_item(SSS_SUDO_ITEM_USE_PRESERV_ENV, (uint32_t) msg.use_preserve_environment,
-                            &buf[rp]);
-
-     rp += add_uint32_t_item(SSS_SUDO_ITEM_USE_IMPLIED_SHELL, (uint32_t) msg.use_implied_shell,
-                            &buf[rp]);
-
-     rp += add_uint32_t_item(SSS_SUDO_ITEM_USE_LOGIN_SHELL, (uint32_t) msg.use_login_shell,
-                            &buf[rp]);
-
-     rp += add_uint32_t_item(SSS_SUDO_ITEM_USE_RUN_SHELL, (uint32_t) msg.use_run_shell,
-                            &buf[rp]);
-
-     rp += add_uint32_t_item(SSS_SUDO_ITEM_USE_PRE_GROUPS, (uint32_t) msg.use_preserve_groups,
-                            &buf[rp]);
-
-     rp += add_uint32_t_item(SSS_SUDO_ITEM_USE_IGNORE_TICKET, (uint32_t) msg.use_ignore_ticket,
-                            &buf[rp]);
-
-     rp += add_uint32_t_item(SSS_SUDO_ITEM_USE_NON_INTERACTIVE, (uint32_t) msg.use_noninteractive,
-                            &buf[rp]);
-
-    rp += add_uint32_t_item(SSS_SUDO_ITEM_DEBUG_LEVEL, (uint32_t) msg.debug_level,
-                            &buf[rp]);
-
-
-    rp += add_string_item(SSS_SUDO_ITEM_COMMAND, msg.command,
-                          msg.command_size, &buf[rp]);
-
-
-    rp += add_uint32_t_item(SSS_SUDO_ITEM_USER_ENV, (uint32_t) msg.user_env,
-                            &buf[rp]);
-
-    rp += add_uint32_t_item(SSS_SUDO_ITEM_CLI_PID, (uint32_t) getpid(),
-                            &buf[rp]);
-
-
-
-    memcpy(&buf[rp], &terminator, sizeof(uint32_t));
-    rp += sizeof(uint32_t);
-
-    if (rp != len) {
-        //D(("error during packet creation."));
-        free(buf);
-        return SSS_SUDO_BUF_ERR;
-    }
-
-    *size = len;
-    *buffer = buf;
-
-    return 0;
-}
 
 
 
@@ -1030,14 +800,6 @@ static int send_and_receive()
 
     print_sudo_items();
 
-    ret = pack_message_sudo_v1(&rd.len, &buf);
-    if (ret == SSS_SUDO_BUF_ERR) {
-       // D(("pack_message failed."));
-        _status = SSS_SUDO_SYSTEM_ERR;
-        goto done;
-    }
-    rd.data = buf;
-
     errnop = 0;
     ret = sss_sudo_make_request( &rd, &repbuf, &replen, &errnop);
 
@@ -1049,37 +811,21 @@ static int send_and_receive()
         goto done;
     }
 
-/* FIXME: add an end signature */
+/* check the reply signature */
     if (replen < (2*sizeof(int32_t))) {
         //D(("response not in expected format."));
         _status = SSS_SUDO_SYSTEM_ERR;
         goto done;
     }
 
-    _status = ((int32_t *)repbuf)[0];
-    //ret = eval_response(replen, repbuf);
-    if (ret != SSS_SUDO_SUCCESS) {
-       // D(("eval_response failed."));
-        _status = ret;
-        goto done;
-    }
-
-    if (_status != SSS_SUDO_SUCCESS) {
-         //D(  "received for user %s: %d (%d)", user_information.username, _status,  _status);
-     }    
 
 
 done:
-    if (buf != NULL ) {
-        free(buf);
-    }
-    free(repbuf);
+    _status = SSS_STATUS_SUCCESS;
 
-_status = SSS_STATUS_SUCCESS;
-
-if (_status == SSS_STATUS_SUCCESS)
-    return _status;
-else
+    if (_status == SSS_STATUS_SUCCESS)
+	return _status;
+    else
 	return SSS_STATUS_UNAVAIL;
 }
 

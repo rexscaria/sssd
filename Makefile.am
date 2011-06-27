@@ -401,11 +401,14 @@ sssd_pam_LDADD = \
     libsss_util.la
 
 sssd_sudo_SOURCES = \
-    src/responder/sudo/sudosrv.c
+    src/responder/sudo/sudosrv.c \
+    src/responder/sudo/sudosrv.h
 sssd_sudo_LDADD = \
     $(TDB_LIBS) \
     $(SSSD_LIBS) \
     libsss_util.la
+sssd_sudo_LDFLAGS = \
+    -g
 
 sssd_be_SOURCES = \
     src/providers/data_provider_be.c \
@@ -777,7 +780,8 @@ libsss_sudoplugin_la_LDFLAGS = \
     -module \
     -lpam \
     -lpam_misc \
-    $(DBUS_LIBS)
+    $(DBUS_LIBS) \
+    -g
 
 libsss_sudoplugin_CPPFLAGS = \
      $(AM_CPPFLAGS) \
