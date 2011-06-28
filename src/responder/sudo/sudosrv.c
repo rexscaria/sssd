@@ -83,7 +83,7 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
         return EIO;
     }
 
-   printf(" The string messahe is : %s ",str);
+   fprintf(stderr," The string message is : %s\n ",str);
     talloc_set_destructor((TALLOC_CTX *)sudocli, sudo_client_destructor);
 
     DEBUG(4, ("Got string [%s]\n", str));
@@ -150,13 +150,7 @@ static int sudo_client_init(struct sbus_connection *conn, void *data)
     sudocli->conn = conn;
     sudocli->initialized = false;
 
-    /*
-     * 5 seconds should be plenty 
-     *
-     * FIXME: Call to this tevent_timeval_current_ofs()
-     * 	      hangs and the goes in waiting forever.
-     * Pls comment if you know why.
-     */
+    /* 5 seconds should be plenty */
     tv = tevent_timeval_current_ofs(5, 0);
 
     sudocli->timeout = tevent_add_timer(sudoctx->ev, sudocli, tv, init_timeout, sudocli);

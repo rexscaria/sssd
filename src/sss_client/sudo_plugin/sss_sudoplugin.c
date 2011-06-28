@@ -689,23 +689,24 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                       int *errnop)
 {
 
-  const char * param ="Hello, World!";
-   DBusMessage* dbus_msg;
-   DBusMessageIter args;
+   const char * param ="Hello, World!";
+   
    DBusConnection* conn;
    DBusError err;
-   DBusPendingCall* pending;
-   int ret;
-   int status;
-   dbus_uint32_t level;
+   
+   DBusMessage* dbus_msg;
+   DBusMessage* dbus_reply;
+   DBusMessageIter args;
+   
+   dbus_uint32_t status=0;
 
-   printf("Calling remote method wit %s\n", param);
+   fprintf(stdout,"Calling remote method wit %s\n", param);
 
    /* initialise the errors */
    dbus_error_init(&err);
 
    /* connect to the system bus and check for errors */
-   conn = dbus_connection_open_private("unix:path=/tmp/sssd/sudo", &err);
+   conn = dbus_connection_open_private(SSS_SUDO_SERVER_ADDRESS, &err);
    if (dbus_error_is_set(&err)) { 
       fprintf(stderr, "Connection Error (%s)\n", err.message); 
       dbus_error_free(&err);
@@ -733,58 +734,51 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    }
    
    /* send message and get a handle for a reply */
-   if (!dbus_connection_send (conn,dbus_msg, &pending)) { 
-      fprintf(stderr, "Out Of Memory!\n"); 
+   dbus_reply = dbus_connection_send_with_reply_and_block (conn,dbus_msg,
+							   SSS_SUDO_TIMEOUT,
+							   &err);
+   if (dbus_error_is_set(&err)) { 
+      fprintf(stderr, "Connection send-reply Error (%s)\n", err.message); 
+      dbus_error_free(&err);
       exit(1);
    }
-   if (NULL == pending) { 
-      fprintf(stderr, "Pending Call Null\n"); 
+   if (NULL == dbus_reply) { 
+      fprintf(stderr, "reply failed\n"); 
       exit(1); 
    }
-   dbus_connection_flush(conn);
    
-   printf("Request Sent\n");
    
-   /* free message */
-   dbus_message_unref(dbus_msg);
-   
-   /* block until we recieve a reply */
-   dbus_pending_call_block(pending);
-
-   /* get the reply message */
-   dbus_msg = dbus_pending_call_steal_reply(pending);
-   if (NULL == dbus_msg) {
-      fprintf(stderr, "Reply Null\n"); 
-      exit(1); 
-   }
-   /* free the pending message handle */
-   dbus_pending_call_unref(pending);
+   fprintf(stdout,"Request Sent\n");
+     
 
    /* read the parameters */
-   if (!dbus_message_iter_init(dbus_msg, &args))
+   if (!dbus_message_iter_init(dbus_reply, &args)) {
       fprintf(stderr, "Message has no arguments!\n"); 
-   else if (DBUS_TYPE_UINT16 != dbus_message_iter_get_arg_type(&args)) 
+      
+   }
+   else if (DBUS_TYPE_UINT16 != dbus_message_iter_get_arg_type(&args)) {
       fprintf(stderr, "Argument is not DBUS_TYPE_UINT16!\n"); 
-   else
+      
+   }
+   else {
       dbus_message_iter_get_basic(&args, &status);
+      
+   }
 
    
-   printf("Got Reply: %d, %d\n", status, level);
+   fprintf(stdout,"Got Reply: %d\n", status);
    
    // free reply and close connection
-   dbus_message_unref(dbus_msg);   
-   //dbus_connection_close(conn);
+   /* free message */
+   dbus_message_unref(dbus_msg);
+   dbus_message_unref(dbus_reply);
+   dbus_connection_close(conn);
 
 
 
 return SSS_STATUS_SUCCESS;
 
 }
-
-
-
-
-
 
 
 

@@ -32,10 +32,14 @@
 #undef SSS_START_OF_SUDO_REQUEST
 #define SSS_START_OF_SUDO_REQUEST 0x436789
 
+#undef SSS_SUDO_SERVER_ADDRESS
+#define SSS_SUDO_SERVER_ADDRESS "unix:path=/tmp/sssd/sudo"
 
+#undef SSS_SUDO_TIMEOUT
+#define SSS_SUDO_TIMEOUT 60
 #ifndef _SSSCLI_H
 
-   /* If sss_cli.h is not imported */
+   /* If sss_cli.h is not included */
 struct sss_cli_req_data {
     size_t len;
     const void *data;
