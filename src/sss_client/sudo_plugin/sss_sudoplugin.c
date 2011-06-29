@@ -701,12 +701,12 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    dbus_uint32_t status=0;
 
    fprintf(stdout,"Calling remote method wit %s\n", param);
-
+   
    /* initialise the errors */
    dbus_error_init(&err);
 
    /* connect to the system bus and check for errors */
-   conn = dbus_connection_open_private(SSS_SUDO_SERVER_ADDRESS, &err);
+   conn = dbus_connection_open_private(SSS_SUDO_SERVICE_PIPE, &err);
    if (dbus_error_is_set(&err)) { 
       fprintf(stderr, "Connection Error (%s)\n", err.message); 
       dbus_error_free(&err);
@@ -717,10 +717,10 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
 
 
    /* create a new method call and check for errors */
-   dbus_msg = dbus_message_new_method_call( NULL, 			/*    target    */
-                                      "/org/freedesktop/sssd/sudo",    /*    object    */
-                                      "org.freedesktop.sssd.sudo",    /*   interface  */
-                                      "queryService");               /*  method name */              
+   dbus_msg = dbus_message_new_method_call( NULL, 		/*    target    */
+                                      SUDO_SERVER_PATH,        /*    object    */
+                                      SUDO_SERVER_INTERFACE,  /*   interface  */
+                                      SUDO_METHOD_QUERY);    /*  method name */              
    if (NULL == dbus_msg) { 
       fprintf(stderr, "Message Null\n");
       return SSS_SUDO_SYSTEM_ERR;

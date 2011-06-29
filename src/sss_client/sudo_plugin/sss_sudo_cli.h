@@ -32,11 +32,25 @@
 #undef SSS_START_OF_SUDO_REQUEST
 #define SSS_START_OF_SUDO_REQUEST 0x436789
 
-#undef SSS_SUDO_SERVER_ADDRESS
-#define SSS_SUDO_SERVER_ADDRESS "unix:path=/tmp/sssd/sudo"
+#ifndef SSS_SUDO_SERVICE_PIPE
+#define SSS_SUDO_SERVICE_PIPE "unix:path=" PIPE_PATH "/sudo"
+#endif
 
 #undef SSS_SUDO_TIMEOUT
 #define SSS_SUDO_TIMEOUT 60
+
+#ifndef SUDO_SERVER_INTERFACE
+#define SUDO_SERVER_INTERFACE "org.freedesktop.sssd.sudo"
+#endif
+
+#ifndef SUDO_SERVER_PATH
+#define SUDO_SERVER_PATH "/org/freedesktop/sssd/sudo"
+#endif
+
+#ifndef SUDO_METHOD_QUERY
+#define SUDO_METHOD_QUERY "queryService"
+#endif
+
 #ifndef _SSSCLI_H
 
    /* If sss_cli.h is not included */

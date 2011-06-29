@@ -41,8 +41,8 @@
 static int sudo_client_destructor(void *ctx)
 {
     struct sudo_client *sudocli = talloc_get_type(ctx, struct sudo_client);
-    if (sudocli->sudoctx) {
-            //sudocli->sudoctx->sudo_cli = NULL; 
+    if (sudocli) {
+            talloc_zfree(sudocli); 
             DEBUG(4, ("Removed Sudo client\n"));       
     }
     return 0;
@@ -68,7 +68,7 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
     }
 
     /* First thing, cancel the timeout */
-    DEBUG(4, ("Cancel SUDO ID timeout [%p]\n", sudocli->timeout));
+    DEBUG(4, ("Cancel SUDO client timeout [%p]\n", sudocli->timeout));
     talloc_zfree(sudocli->timeout);
 
     dbus_error_init(&dbus_error);
@@ -99,7 +99,7 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
                                      DBUS_TYPE_UINT16, &version,
                                      DBUS_TYPE_INVALID);
     if (!dbret) {
-        DEBUG(0, ("Failed to build dbus reply\n"));
+        DEBUG(0, ("Failed to build sudo dbus reply\n"));
         dbus_message_unref(reply);
         sbus_disconnect(conn);
         return EIO;
@@ -121,7 +121,7 @@ static void init_timeout(struct tevent_context *ev,
 {
     struct sudo_client *sudocli;
 
-    DEBUG(2, ("Client timed out before Identification [%p]!\n", te));
+    DEBUG(2, ("Client timed out  [%p]!\n", te));
 
     sudocli = talloc_get_type(ptr, struct sudo_client);
 
@@ -159,7 +159,7 @@ static int sudo_client_init(struct sbus_connection *conn, void *data)
         talloc_zfree(conn);
         return ENOMEM;
     }
-    DEBUG(4, ("Set-up Backend ID timeout [%p]\n", sudocli->timeout));
+    DEBUG(4, ("Set-up Sudo client timeout [%p]\n", sudocli->timeout));
 
     /* Attach the client context to the connection context, so that it is
      * always available when we need to manage the connection. */
@@ -169,24 +169,24 @@ static int sudo_client_init(struct sbus_connection *conn, void *data)
 }
 
 
-int sudo_server_connect(TALLOC_CTX *mem_ctx,
+int sudo_server_init(TALLOC_CTX *mem_ctx,
 			struct tevent_context *ev,
 			struct sudo_ctx *_ctx)
 {
   
-    char *sudo_address="unix:path=/tmp/sssd/sudo";
     int ret;
     struct sbus_connection *serv;
     
   
     DEBUG(1, ("Setting up the sudo server.\n"));
+    
+     
         
-
-    ret = sbus_new_server(mem_ctx,ev, sudo_address,
+    ret = sbus_new_server(mem_ctx,ev, SSS_SUDO_SERVICE_PIPE,
                           &sudo_interface, &serv,
                           sudo_client_init, _ctx);
     if (ret != EOK) {
-        DEBUG(0, ("Could not set up sbus server.\n"));
+        DEBUG(0, ("Could not set up sudo sbus server.\n"));
         return ret;
     }
 
@@ -206,7 +206,7 @@ int sudo_process_init(TALLOC_CTX *mem_ctx,
   ctx->cdb = cdb;
   
   
-  ret =sudo_server_connect(mem_ctx,ev,ctx);
+  ret = sudo_server_init(mem_ctx, ev, ctx);
   DEBUG(0, ("sudo server returned %d.\n",ret));
   
     return EOK;

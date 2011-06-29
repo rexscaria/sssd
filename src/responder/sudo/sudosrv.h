@@ -25,9 +25,22 @@
 
 #define CONFDB_SUDO_CONF_ENTRY "config/sudo"
 
-#define SUDO_INTERFACE "org.freedesktop.sssd.sudo"
-#define SUDO_PATH "/org/freedesktop/sssd/sudo"
+#ifndef SSS_SUDO_SERVICE_PIPE
+#define SSS_SUDO_SERVICE_PIPE "unix:path=" PIPE_PATH "/sudo"
+#endif
+
+#ifndef SUDO_SERVER_INTERFACE
+#define SUDO_SERVER_INTERFACE "org.freedesktop.sssd.sudo"
+#endif
+
+#ifndef SUDO_SERVER_PATH
+#define SUDO_SERVER_PATH "/org/freedesktop/sssd/sudo"
+#endif
+
+#ifndef SUDO_METHOD_QUERY
 #define SUDO_METHOD_QUERY "queryService"
+#endif
+
 
 static int sudo_query_validation(DBusMessage *message, struct sbus_connection *conn);
 struct sbus_method sudo_methods[] = {
@@ -37,8 +50,8 @@ struct sbus_method sudo_methods[] = {
 };
 
 struct sbus_interface sudo_interface = {
-    SUDO_INTERFACE,
-    SUDO_PATH,
+    SUDO_SERVER_INTERFACE,
+    SUDO_SERVER_PATH,
     SBUS_DEFAULT_VTABLE,
     sudo_methods,
     NULL
