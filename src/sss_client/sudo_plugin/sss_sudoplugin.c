@@ -40,12 +40,6 @@
 #define _PATH_VI "/bin/vi"
 #endif
 
-#ifndef _PATH_DEFPATH
-/* Default path to executables */
-#define _PATH_DEFPATH	"/usr/bin:/bin"
-#endif
-
-
 #include "config.h"
 
 #include <sys/types.h>
@@ -532,7 +526,7 @@ static char * find_in_path(char *command, char **envp)
     if (strchr(command, '/') != NULL)
 	return command;
 
-    path = _PATH_DEFPATH;
+    path = getenv("PATH");
     for (ep = plugin_state.envp; *ep != NULL; ep++) {
 	if (strncmp(*ep, "PATH=", 5) == 0) {
 	    path = *ep + 5;
