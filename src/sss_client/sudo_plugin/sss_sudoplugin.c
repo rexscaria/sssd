@@ -699,6 +699,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    DBusMessageIter args;
    
    dbus_uint32_t status=0;
+   dbus_bool_t ret=FALSE;
 
    fprintf(stdout,"Calling remote method wit %s\n", param);
    
@@ -723,12 +724,17 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                       SUDO_METHOD_QUERY);    /*  method name */              
    if (NULL == dbus_msg) { 
       fprintf(stderr, "Message Null\n");
+      if (dbus_error_is_set(&err)) 
+	  dbus_error_free(&err);
+      dbus_connection_close(conn);
       return SSS_SUDO_SYSTEM_ERR;
    }
 
    /* append arguments */
-   dbus_message_iter_init_append(dbus_msg, &args);
-   if (!dbus_message_iter_append_basic(&args, DBUS_TYPE_STRING, &param)) {
+   ret = dbus_message_append_args(dbus_msg,
+			    DBUS_TYPE_STRING, &param,
+                            DBUS_TYPE_INVALID);
+   if (!ret) {
       fprintf(stderr, "Out Of Memory!\n"); 
       exit(1);
    }
@@ -751,21 +757,16 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    fprintf(stdout,"Request Sent\n");
      
 
-   /* read the parameters */
-   if (!dbus_message_iter_init(dbus_reply, &args)) {
-      fprintf(stderr, "Message has no arguments!\n"); 
-      
-   }
-   else if (DBUS_TYPE_UINT16 != dbus_message_iter_get_arg_type(&args)) {
-      fprintf(stderr, "Argument is not DBUS_TYPE_UINT16!\n"); 
-      
-   }
-   else {
-      dbus_message_iter_get_basic(&args, &status);
-      
-   }
-
-   
+    ret = dbus_message_get_args(dbus_reply, &err,
+                                  DBUS_TYPE_UINT16, &status,
+                                  DBUS_TYPE_INVALID);
+    if (!ret) {
+        fprintf (stderr,"Failed to parse reply, killing connection\n");
+        if (dbus_error_is_set(&err)) dbus_error_free(&err);
+        dbus_connection_close(conn);
+        return SSS_SUDO_SYSTEM_ERR;
+    }
+    
    fprintf(stdout,"Got Reply: %d\n", status);
    
    // free reply and close connection
