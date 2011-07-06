@@ -51,6 +51,10 @@
 #define SUDO_METHOD_QUERY "queryService"
 #endif
 
+#ifndef CHECK_AND_RETURN_PI_STRING
+#define CHECK_AND_RETURN_PI_STRING(s) ((s != NULL && *s != '\0')? s : "(not available)")
+#endif
+
 #ifndef _SSSCLI_H
 
    /* If sss_cli.h is not included */
@@ -79,29 +83,52 @@ enum error_types_sudo{
 
 
 
-enum sudo_item_type{
+enum sudo_nullable_item_type{
 
-  SSS_SUDO_ITEM_UID = 0x0000,
-  SSS_SUDO_ITEM_CWD,
-  SSS_SUDO_ITEM_TTY,
-  SSS_SUDO_ITEM_RUSER,
-  SSS_SUDO_ITEM_RGROUP,
-  SSS_SUDO_ITEM_PROMPT,
-  SSS_SUDO_ITEM_NETADDR,
-  SSS_SUDO_ITEM_USE_SUDOEDIT,
-  SSS_SUDO_ITEM_USE_SETHOME,
-  SSS_SUDO_ITEM_USE_PRESERV_ENV,
-  SSS_SUDO_ITEM_USE_IMPLIED_SHELL,
-  SSS_SUDO_ITEM_USE_LOGIN_SHELL,
-  SSS_SUDO_ITEM_USE_RUN_SHELL,
-  SSS_SUDO_ITEM_USE_PRE_GROUPS,
-  SSS_SUDO_ITEM_USE_IGNORE_TICKET,
-  SSS_SUDO_ITEM_USE_NON_INTERACTIVE,
-  SSS_SUDO_ITEM_DEBUG_LEVEL,
-  SSS_SUDO_ITEM_COMMAND,
-  SSS_SUDO_ITEM_USER_ENV,
-  SSS_SUDO_ITEM_CLI_PID
+  SSS_SUDO_ITEM_CWD = 0x0001,
+  SSS_SUDO_ITEM_TTY = 0x0002,
+  SSS_SUDO_ITEM_RUSER = 0x0004,
+  SSS_SUDO_ITEM_RGROUP = 0x0008,
+  SSS_SUDO_ITEM_PROMPT = 0x0010,
+  SSS_SUDO_ITEM_NETADDR = 0x0020,
+  SSS_SUDO_ITEM_COMMAND = 0x0040,
+  SSS_SUDO_ITEM_USER_ENV = 0x0080,
 
+};
+
+static struct sss_sudo_msg_contents
+{
+
+  /* from user_info */
+  uid_t userid;
+  char *cwd;
+  char *tty;
+  
+  /* from settings */
+  char * runas_user;
+  char * runas_group;
+  char * prompt;
+  char * network_addrs;
+  int use_sudoedit;
+  int use_set_home;
+  int use_preserve_environment;
+  int use_implied_shell;
+  int use_login_shell;
+  int use_run_shell;
+  int use_preserve_groups;
+  int use_ignore_ticket;
+  int use_noninteractive;
+  int debug_level; 
+
+  /*from user_env*/
+  char * * user_env;
+ 
+  /* command with arguments */
+  char ** command;
+  int command_count;
+
+  /* Clients pid */
+  int cli_pid;
 };
 
 #endif  /* _SSS_SUDO_CLI_H_ */
