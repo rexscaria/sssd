@@ -41,7 +41,7 @@
 #endif
 
 #include "config.h"
-
+#include<unistd.h>
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/stat.h>
@@ -83,6 +83,7 @@
 #include "missing.h"
 #include <sudo_plugin.h>
 
+#define PAM_DEBUG 1
 
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
@@ -153,49 +154,7 @@ static struct user_info_struct
  * passed to SSSD responder.
  */
 
-static struct sss_sudo_msg_contents
-{
-
-  /* from user_info */
-  uid_t userid;
-  char *cwd;
-  char *tty;
-  
-  size_t cwd_size;
-  size_t tty_size;
-
-  /* from settings */
-  char * runas_user;
-  char * runas_group;
-  char * prompt;
-  char * network_addrs;
-  int use_sudoedit;
-  int use_set_home;
-  int use_preserve_environment;
-  int use_implied_shell;
-  int use_login_shell;
-  int use_run_shell;
-  int use_preserve_groups;
-  int use_ignore_ticket;
-  int use_noninteractive;
-  int debug_level; 
-
-  size_t runas_user_size;
-  size_t runas_group_size;
-  size_t prompt_size;
-  size_t network_addrs_size;
-
-  /*from user_env*/
-  char * const * user_env;
-  size_t user_env_size;
-
-  /* command with arguments */
-  char * command;
-  size_t command_size;
-
-  /* Clients pid */
-  int cli_pid;
-}msg;
+struct sss_sudo_msg_contents msg;
 
 
 
@@ -222,7 +181,7 @@ static void print_sudo_items()
     D(("Network Address: %s",CHECK_AND_RETURN_PI_STRING(msg.network_addrs)));
     D(("Use sudo edit: %s",CHECK_AND_RETURN_BOOL_STRING(msg.use_sudoedit)));
     D(("Use set home: %s",CHECK_AND_RETURN_BOOL_STRING(msg.use_set_home)));
-    D(("Use preserve environment: %s",CHECK_AND_RETURN_BOOL_STRING(msg.use_preserver_environment)));
+    D(("Use preserve environment: %s",CHECK_AND_RETURN_BOOL_STRING(msg.use_preserve_environment)));
     D(("Use implied shell: %s",CHECK_AND_RETURN_BOOL_STRING(msg.use_implied_shell)));
     D(("Use login shell: %s",CHECK_AND_RETURN_BOOL_STRING(msg.use_login_shell)));
     D(("Use run shell: %s",CHECK_AND_RETURN_BOOL_STRING(msg.use_run_shell))); 
@@ -230,7 +189,7 @@ static void print_sudo_items()
     D(("Use ignore ticket: %s",CHECK_AND_RETURN_BOOL_STRING(msg.use_ignore_ticket)));
     D(("Use non interactive mode: %s",CHECK_AND_RETURN_BOOL_STRING(msg.use_noninteractive)));
     D(("Use debug level: %s",CHECK_AND_RETURN_BOOL_STRING(msg.use_sudoedit)));
-    D(("Command: %s", CHECK_AND_RETURN_PI_STRING(msg.command)));
+    D(("Command: %s", CHECK_AND_RETURN_PI_STRING(*msg.command)));
     /* add env var list */
     D(("Cli_PID: %d", msg.cli_pid));
 }
@@ -241,9 +200,6 @@ static void print_sudo_items()
 static void init_size_of_msg_contents()
 {
   msg.userid=-1;
-  msg.cwd_size = 0;
-  msg.tty_size= 0;
-
 
   msg.use_sudoedit = FALSE;
   msg.use_set_home = FALSE;
@@ -257,14 +213,9 @@ static void init_size_of_msg_contents()
 
   msg.debug_level=0;
 
-  msg.runas_user_size = 0;
-  msg.runas_group_size = 0;
-  msg.prompt_size = 0;
-  msg.network_addrs_size = 0;
-  msg.command_size=0;
+  msg.command_count=0;
 
-  msg.user_env_size = 0;
-  msg.cli_pid = 0;
+  msg.cli_pid = getpid();
 }
 
 /*
@@ -367,7 +318,6 @@ static int policy_open(unsigned int version,
     
 	else if (strncmp(*ui, "prompt=", sizeof("prompt=") - 1) == 0) {
 	    msg.prompt = strdup(*ui + sizeof("prompt=") - 1);
-	    msg.prompt_size = (msg.prompt !=  NULL)? strlen(msg.prompt)+1 : 0;
 	}
 	
      /* Find the user to be run as */
@@ -375,7 +325,6 @@ static int policy_open(unsigned int version,
 	else if (strncmp(*ui, "runas_user=", sizeof("runas_user=") - 1) == 0) {
 	   msg.runas_user = strdup(*ui + sizeof("runas_user=") - 1);
 	   runas_user = msg.runas_user;
-	   msg.runas_user_size = (msg.runas_user != NULL)? strlen(msg.runas_user)+1 : 0;
 	}
 	
      /* Find the group to be run as */
@@ -383,7 +332,6 @@ static int policy_open(unsigned int version,
 	else if (strncmp(*ui, "runas_group=", sizeof("runas_group=") - 1) == 0) {
 	    msg.runas_group = strdup(*ui + sizeof("runas_group=") - 1);
 	    runas_group = msg.runas_group;
-	    msg.runas_group_size = (msg.runas_group != NULL)? strlen(msg.runas_group)+1 : 0;
 	}
 	
      /* 
@@ -439,7 +387,6 @@ static int policy_open(unsigned int version,
 	
 	else if (strncmp(*ui, "network_addrs=", sizeof("network_addrs=") - 1) == 0) {
 	    msg.network_addrs = strdup(*ui + sizeof("network_addrs=") - 1);
-	    msg.network_addrs_size = (msg.network_addrs != NULL)? strlen(msg.network_addrs)+1 : 0;
 	}
 
 	/* settings are over */
@@ -465,13 +412,11 @@ static int policy_open(unsigned int version,
 	/* get cwd */
 	else if (strncmp(*ui, "cwd=", sizeof("cwd=") - 1) == 0) {
 	    msg.cwd = strdup(*ui + sizeof("cwd=") - 1);
-	    msg.cwd_size = (msg.cwd != NULL)? strlen(msg.cwd)+1 : 0;
 	}
 	
 	/* get tty */
 	else if (strncmp(*ui, "tty=", sizeof("tty=") - 1) == 0) {
 	    msg.tty = strdup( *ui + sizeof("tty=") - 1);
-	    msg.tty_size = (msg.tty != NULL)? strlen(msg.tty)+1 : 0;
 	}
 	
 	/* get lines - to be removed at final code if no use */
@@ -505,7 +450,7 @@ static int policy_open(unsigned int version,
     /* fill Plugin state. */
     plugin_state.envp = (char **)user_env;
     msg.user_env = (char **)user_env;
-    msg.user_env_size = (msg.user_env != NULL)?sizeof msg.user_env :0;
+    /* FIXME: Set a mechanism to handle environment */
     plugin_state.settings = settings;
     plugin_state.user_info = user_info;
 
@@ -673,7 +618,27 @@ static char * find_editor(int nfiles, char * const files[], char **argv_out[])
     return editor_path;
 }
 
-
+void calc_nullable_status(dbus_uint32_t * status) 
+{
+  *status = 0x0000;
+   if(msg.cwd)
+      *status |= SSS_SUDO_ITEM_CWD;
+   if(msg.tty)
+      *status |= SSS_SUDO_ITEM_TTY;
+   if(msg.runas_user)
+      *status |= SSS_SUDO_ITEM_RUSER;
+   if(msg.runas_group)
+      *status |= SSS_SUDO_ITEM_RGROUP;
+   if(msg.prompt)
+      *status |= SSS_SUDO_ITEM_PROMPT;
+   if(msg.network_addrs)
+      *status |= SSS_SUDO_ITEM_NETADDR;
+   if(msg.command)
+      *status |= SSS_SUDO_ITEM_COMMAND;
+   if(msg.user_env)
+      *status |= SSS_SUDO_ITEM_USER_ENV;
+  
+}
 
 
 
@@ -683,19 +648,32 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                       int *errnop)
 {
 
-   const char * param ="Hello, World!";
+   const char * truth = "TRUE";
+   const char * fallacy = "FALSE";
+   char ** command_array;
+   int count;
+   char *tmp;
+   char **ui;
+   
+#define GET_BOOL_STRING(x) ((x)? &truth : &fallacy)
    
    DBusConnection* conn;
    DBusError err;
    
    DBusMessage* dbus_msg;
    DBusMessage* dbus_reply;
-   DBusMessageIter args;
+   DBusMessageIter msg_iter;
+   DBusMessageIter sub_iter;
+   DBusMessageIter dict_iter;
    
+   dbus_uint32_t start_header;
    dbus_uint32_t status=0;
    dbus_bool_t ret=FALSE;
+   dbus_uint32_t nullable_status= 0x0000;
+   
+   calc_nullable_status(&nullable_status);
 
-   fprintf(stdout,"Calling remote method wit %s\n", param);
+   fprintf(stdout,"Calling remote method to pack message\n");
    
    /* initialise the errors */
    dbus_error_init(&err);
@@ -723,19 +701,565 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
       dbus_connection_close(conn);
       return SSS_SUDO_SYSTEM_ERR;
    }
+   
+   start_header = SSS_START_OF_SUDO_REQUEST;
 
    /* append arguments */
-   ret = dbus_message_append_args(dbus_msg,
-			    DBUS_TYPE_STRING, &param,
-                            DBUS_TYPE_INVALID);
-   if (!ret) {
+   
+   
+   dbus_message_iter_init_append(dbus_msg, &msg_iter);
+       
+   if (!dbus_message_iter_append_basic(&msg_iter, 
+					DBUS_TYPE_UINT32, 
+				       &start_header)) {
       fprintf(stderr, "Out Of Memory!\n"); 
       exit(1);
    }
    
+   if (!dbus_message_iter_append_basic(&msg_iter, 
+				       DBUS_TYPE_UINT32, 
+				       &nullable_status)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+      
+   if(!dbus_message_iter_open_container(&msg_iter,
+					DBUS_TYPE_STRUCT,NULL,
+					&sub_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+  if (!dbus_message_iter_append_basic(&sub_iter, 
+				      DBUS_TYPE_UINT32, 
+				      &msg.userid)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+  if(nullable_status & SSS_SUDO_ITEM_CWD){
+    if (!dbus_message_iter_append_basic(&sub_iter, 
+					DBUS_TYPE_STRING, 
+					&msg.cwd)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+	exit(1);
+    }
+  }
+   
+  if(nullable_status & SSS_SUDO_ITEM_TTY){
+    if (!dbus_message_iter_append_basic(&sub_iter, 
+					DBUS_TYPE_STRING, 
+					&msg.tty)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+    }
+  }
+      
+   if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   command_array =  (char *) malloc(msg.command_count* sizeof (char*));
+   
+   for(count = 0;count<msg.command_count;count++) {
+     command_array[count] = msg.command[count];
+   }
+   
+   
+    if(nullable_status & SSS_SUDO_ITEM_COMMAND){
+      
+    if(!dbus_message_iter_open_container(&msg_iter,
+					 DBUS_TYPE_ARRAY,"s",
+					 &sub_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   for(count =0; count<msg.command_count;count++){
+     
+      if (!dbus_message_iter_append_basic(&sub_iter, 
+					  DBUS_TYPE_STRING, 
+					  &command_array[count])) {
+	  fprintf(stderr, "Out Of Memory!\n"); 
+	  exit(1);
+      } 
+     
+   }
+   
+   if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+	exit(1);
+   }
+   }
+   ////////
+   
+   if(!dbus_message_iter_open_container(&msg_iter,
+					 DBUS_TYPE_ARRAY,
+					"{ss}",
+					&sub_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+	exit(1);
+   }
+   
+    if(nullable_status & SSS_SUDO_ITEM_RUSER){
+   tmp = strdup("runasuser");
+   
+ 	if(!dbus_message_iter_open_container(&sub_iter, 
+					      DBUS_TYPE_DICT_ENTRY,NULL,
+					      &dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+    
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+					DBUS_TYPE_STRING,
+				       &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter,
+				      DBUS_TYPE_STRING,
+				       &msg.runas_user)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+    }
+    
+    
+     if(nullable_status & SSS_SUDO_ITEM_RGROUP){
+	tmp = strdup("runasgroup");
+	if(!dbus_message_iter_open_container(&sub_iter, DBUS_TYPE_DICT_ENTRY,NULL,&dict_iter)) {
+	      fprintf(stderr, "Out Of Memory!\n"); 
+	      exit(1);
+	}
+	if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp)) {
+	      fprintf(stderr, "Out Of Memory!\n"); 
+	      exit(1);
+	}
+	if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &msg.runas_group)) {
+	      fprintf(stderr, "Out Of Memory!\n"); 
+	      exit(1);
+	}
+	free(tmp);
+   
+	if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	      fprintf(stderr, "Out Of Memory!\n"); 
+	      exit(1);
+	}
+   
+    }
+    
+    
+     if(nullable_status & SSS_SUDO_ITEM_PROMPT){
+       if(!dbus_message_iter_open_container(&sub_iter, DBUS_TYPE_DICT_ENTRY,NULL,&dict_iter)) {
+	      fprintf(stderr, "Out Of Memory!\n"); 
+	      exit(1);
+	}
+      tmp = strdup("prompt");
+  
+      if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp)) {
+	  fprintf(stderr, "Out Of Memory!\n"); 
+	  exit(1);
+      }
+      if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &msg.prompt)) {
+	  fprintf(stderr, "Out Of Memory!\n"); 
+	  exit(1);
+      }
+      free(tmp);
+   
+      if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	  fprintf(stderr, "Out Of Memory!\n"); 
+	  exit(1);
+      }
+  
+    }
+    
+    
+    
+  if(nullable_status & SSS_SUDO_ITEM_NETADDR){
+      if(!dbus_message_iter_open_container(&sub_iter, DBUS_TYPE_DICT_ENTRY,NULL,&dict_iter)) {
+	  fprintf(stderr, "Out Of Memory!\n"); 
+	  exit(1);
+      }
+      tmp = strdup("networkaddress");
+     
+      if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp)) {
+	  fprintf(stderr, "Out Of Memory!\n"); 
+	  exit(1);
+      }
+      if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &msg.network_addrs)) {
+	  fprintf(stderr, "Out Of Memory!\n"); 
+	  exit(1);
+      }
+      free(tmp);
+   
+      if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	   fprintf(stderr, "Out Of Memory!\n"); 
+	   exit(1);
+      }
+   
+  }
+    
+    
+    
+   
+   tmp = strdup("use_sudoedit");
+   if(!dbus_message_iter_open_container(&sub_iter, 
+					DBUS_TYPE_DICT_ENTRY,NULL,
+					&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+    
+   if (!dbus_message_iter_append_basic(&dict_iter,
+				      DBUS_TYPE_STRING,
+				       &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+					DBUS_TYPE_STRING, 
+				       GET_BOOL_STRING(msg.use_sudoedit))) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if(!dbus_message_iter_open_container(&sub_iter, 
+					DBUS_TYPE_DICT_ENTRY,
+					NULL,
+					&dict_iter)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   
+   tmp = strdup("use_set_home");
+     
+   if (!dbus_message_iter_append_basic(&dict_iter,
+					DBUS_TYPE_STRING, 
+				       &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+					DBUS_TYPE_STRING, 
+				       GET_BOOL_STRING(msg.use_set_home))) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   
+   if(!dbus_message_iter_open_container(&sub_iter,
+					DBUS_TYPE_DICT_ENTRY,
+					NULL,
+					&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   
+   tmp = strdup("use_preserve_environment");
+     
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+					DBUS_TYPE_STRING, 
+				       &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter,
+				      DBUS_TYPE_STRING, 
+				       GET_BOOL_STRING(msg.use_preserve_environment))) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+	exit(1);
+   }
+   if(!dbus_message_iter_open_container(&sub_iter, 
+					DBUS_TYPE_DICT_ENTRY,
+					NULL,
+					&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+	exit(1);
+   }
+   
+   tmp = strdup("use_implied_shell");
+    
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+				      DBUS_TYPE_STRING,
+				      &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+					DBUS_TYPE_STRING,
+				       GET_BOOL_STRING(msg.use_implied_shell))) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if(!dbus_message_iter_open_container(&sub_iter, 
+					DBUS_TYPE_DICT_ENTRY,
+					NULL,
+					&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   tmp = strdup("use_login_shell");
+     
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+				      DBUS_TYPE_STRING,
+				      &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+				      DBUS_TYPE_STRING, 
+				       GET_BOOL_STRING(msg.use_login_shell))) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if(!dbus_message_iter_open_container(&sub_iter, 
+					DBUS_TYPE_DICT_ENTRY,
+					NULL,
+					&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   
+   tmp = strdup("use_run_shell");
+     
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+				      DBUS_TYPE_STRING, 
+				      &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+					DBUS_TYPE_STRING, 
+				       GET_BOOL_STRING(msg.use_run_shell))) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+   
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if(!dbus_message_iter_open_container(&sub_iter, 
+					DBUS_TYPE_DICT_ENTRY,
+					NULL,
+					&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   
+   tmp = strdup("use_preserve_groups");
+     
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+					DBUS_TYPE_STRING, 
+				       &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+				      DBUS_TYPE_STRING, 
+				       GET_BOOL_STRING(msg.use_preserve_groups))) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if(!dbus_message_iter_open_container(&sub_iter, 
+					DBUS_TYPE_DICT_ENTRY,
+					NULL,
+					&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   
+   tmp = strdup("use_ignore_ticket");
+     
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+				      DBUS_TYPE_STRING, 
+				      &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+					DBUS_TYPE_STRING, 
+				       GET_BOOL_STRING(msg.use_ignore_ticket))) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if(!dbus_message_iter_open_container(&sub_iter, 
+					DBUS_TYPE_DICT_ENTRY,
+					NULL,
+					&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   tmp = strdup("use_noninteractive");
+     
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+				      DBUS_TYPE_STRING, 
+				       &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter,
+					DBUS_TYPE_STRING,
+				       GET_BOOL_STRING(msg.use_noninteractive))) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if(!dbus_message_iter_open_container(&sub_iter, 
+					DBUS_TYPE_DICT_ENTRY,
+					NULL,
+					&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   tmp = strdup("use_debug_level");
+     
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+				      DBUS_TYPE_STRING, 
+				       &tmp)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter, 
+				      DBUS_TYPE_STRING, 
+				       GET_BOOL_STRING(msg.debug_level))) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   free(tmp);
+   
+   
+   
+  
+  
+  
+   if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+
+
+  /////
+  
+  
+  
+  if(!dbus_message_iter_open_container(&msg_iter,
+					DBUS_TYPE_ARRAY,
+				       "{ss}",
+				       &sub_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+  
+   for(ui = msg.user_env; *ui!=NULL;*ui++) {
+   
+     tmp = strchr(*ui,'=');
+     
+     *tmp = '\0';
+      if(!dbus_message_iter_open_container(&sub_iter, 
+					  DBUS_TYPE_DICT_ENTRY,NULL,
+					   &dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+     
+   if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, ui)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp+1)) {
+      fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   *tmp = '=' ;
+
+    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+   
+   }
+
+if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
+	fprintf(stderr, "Out Of Memory!\n"); 
+      exit(1);
+   }
+
+   
    /* send message and get a handle for a reply */
    dbus_reply = dbus_connection_send_with_reply_and_block (conn,dbus_msg,
-							   SSS_SUDO_TIMEOUT,
+							   600,
 							   &err);
    if (dbus_error_is_set(&err)) { 
       fprintf(stderr, "Connection send-reply Error (%s)\n", err.message); 
@@ -769,12 +1293,23 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    dbus_message_unref(dbus_reply);
    dbus_connection_close(conn);
 
-
+free(command_array);
 
 return SSS_STATUS_SUCCESS;
 
 }
 
+void free_all()
+{
+  free(msg.cwd);
+  free(msg.tty);
+  free(msg.prompt);
+  free(msg.runas_user);
+  free(msg.runas_group);
+  free(msg.network_addrs);
+  free(user_information.username);
+  
+}
 
 
 static int send_and_receive()
@@ -926,14 +1461,16 @@ static int  policy_check(int argc, char * const argv[],
   /* pam is success :) */
   pam_end(pamh, pam_ret);
 
-  msg.command = command;
-  msg.command_size = (msg.command)? sizeof msg.command:0;
+  msg.command = argv;
+  msg.command_count = argc;
 
   if(pam_ret==PAM_SUCCESS) {
     
     pam_ret = send_and_receive();   
   }
   
+  free(pam_action);
+  free_all();
     /* Setup command info. */
     *command_info_out = build_command_info(command);
   if (*command_info_out == NULL) {
