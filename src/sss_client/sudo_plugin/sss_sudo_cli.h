@@ -78,7 +78,13 @@ enum error_types_sudo{
   SSS_SUDO_SYSTEM_ERR,
   SSS_SUDO_LOG_ERR,
   SSS_SUDO_LOG_NOTICE,
+  SSS_SUDO_MESSAGE_ERR
 
+};
+
+enum sss_sudo_validation_status {
+    SSS_SUDO_VALIDATION_SUCCESS = 0x00,
+    SSS_SUDO_VALIDATION_ERR
 };
 
 

@@ -618,29 +618,27 @@ static char * find_editor(int nfiles, char * const files[], char **argv_out[])
     return editor_path;
 }
 
-void calc_nullable_status(dbus_uint32_t * status) 
+int validate_message_content()
 {
-  *status = 0x0000;
-   if(msg.cwd)
-      *status |= SSS_SUDO_ITEM_CWD;
-   if(msg.tty)
-      *status |= SSS_SUDO_ITEM_TTY;
-   if(msg.runas_user)
-      *status |= SSS_SUDO_ITEM_RUSER;
-   if(msg.runas_group)
-      *status |= SSS_SUDO_ITEM_RGROUP;
-   if(msg.prompt)
-      *status |= SSS_SUDO_ITEM_PROMPT;
-   if(msg.network_addrs)
-      *status |= SSS_SUDO_ITEM_NETADDR;
-   if(msg.command)
-      *status |= SSS_SUDO_ITEM_COMMAND;
-   if(msg.user_env)
-      *status |= SSS_SUDO_ITEM_USER_ENV;
-  
+    if(!msg.cwd && !*msg.cwd) {
+        fprintf(stderr,"fatal: Current working directory is invalid.");
+        return SSS_SUDO_VALIDATION_ERR;
+    }
+    if(!msg.tty && !*msg.tty) {
+        fprintf(stderr,"fatal: Client terminal is invalid.");
+        return SSS_SUDO_VALIDATION_ERR;
+    }
+    if(!msg.user_env && !*msg.user_env) {
+        fprintf(stderr,"fatal: User environment is invalid.");
+        return SSS_SUDO_VALIDATION_ERR;
+    }
+    if(!msg.command && !*msg.command) {
+        fprintf(stderr,"fatal: Command to be executed is invalid.");
+        return SSS_SUDO_VALIDATION_ERR;
+    }
+
+    return SSS_SUDO_VALIDATION_SUCCESS;
 }
-
-
 
 
 int sss_sudo_make_request(struct sss_cli_req_data *rd,
@@ -670,12 +668,14 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    dbus_uint32_t start_header;
    dbus_uint32_t status=0;
    dbus_bool_t ret=FALSE;
-   dbus_uint32_t nullable_status= 0x0000;
    
-   calc_nullable_status(&nullable_status);
 
    fprintf(stdout,"Calling remote method to pack message\n");
    
+   if(validate_message_content() !=  SSS_SUDO_VALIDATION_SUCCESS) {
+       return SSS_SUDO_MESSAGE_ERR;
+   }
+
    /* initialise the errors */
    dbus_error_init(&err);
 
@@ -717,14 +717,6 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
       exit(1);
    }
    
-   if (!dbus_message_iter_append_basic(&msg_iter, 
-                                       DBUS_TYPE_UINT32,
-                                       &nullable_status)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   
-      
    if(!dbus_message_iter_open_container(&msg_iter,
                                         DBUS_TYPE_STRUCT,
                                         NULL,
@@ -738,24 +730,22 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
            fprintf(stderr, "Out Of Memory!\n");
            exit(1);
        }
-   
-       if(nullable_status & SSS_SUDO_ITEM_CWD){
-           if (!dbus_message_iter_append_basic(&sub_iter,
-                                               DBUS_TYPE_STRING,
-                                               &msg.cwd)) {
-                   fprintf(stderr, "Out Of Memory!\n");
-                   exit(1);
-           }
+
+       if (!dbus_message_iter_append_basic(&sub_iter,
+                                           DBUS_TYPE_STRING,
+                                           &msg.cwd)) {
+           fprintf(stderr, "Out Of Memory!\n");
+           exit(1);
        }
+
    
-       if(nullable_status & SSS_SUDO_ITEM_TTY){
-           if (!dbus_message_iter_append_basic(&sub_iter,
+
+     if (!dbus_message_iter_append_basic(&sub_iter,
                                                DBUS_TYPE_STRING,
                                                &msg.tty)) {
-                   fprintf(stderr, "Out Of Memory!\n");
-                   exit(1);
-           }
-       }
+         fprintf(stderr, "Out Of Memory!\n");
+         exit(1);
+     }
       
    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
       fprintf(stderr, "Out Of Memory!\n");
@@ -769,17 +759,16 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    }
    
    
-   if(nullable_status & SSS_SUDO_ITEM_COMMAND){
       
-       if(!dbus_message_iter_open_container(&msg_iter,
-                                            DBUS_TYPE_ARRAY,
-                                            "s",
-                                            &sub_iter)) {
-           fprintf(stderr, "Out Of Memory!\n");
-           exit(1);
-       }
+   if(!dbus_message_iter_open_container(&msg_iter,
+                                        DBUS_TYPE_ARRAY,
+                                        "s",
+                                        &sub_iter)) {
+       fprintf(stderr, "Out Of Memory!\n");
+       exit(1);
+   }
    
-           for(count =0 ; count < msg.command_count ; count++) {
+        for(count =0 ; count < msg.command_count ; count++) {
      
                    if (!dbus_message_iter_append_basic(&sub_iter,
                                                        DBUS_TYPE_STRING,
@@ -788,13 +777,12 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                            exit(1);
                    }
      
-           }
+        }
    
-       if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
-               fprintf(stderr, "Out Of Memory!\n");
-               exit(1);
-       }
-   }
+    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
+        fprintf(stderr, "Out Of Memory!\n");
+        exit(1);
+    }
    ////////
    
    if(!dbus_message_iter_open_container(&msg_iter,
@@ -805,7 +793,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
        exit(1);
    }
    
-        if(nullable_status & SSS_SUDO_ITEM_RUSER){
+        if(msg.runas_user && *msg.runas_user ){
             tmp = strdup("runasuser");
    
             if(!dbus_message_iter_open_container(&sub_iter,
@@ -838,7 +826,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
         }
     
     
-        if(nullable_status & SSS_SUDO_ITEM_RGROUP){
+        if(msg.runas_group && *msg.runas_group){
             tmp = strdup("runasgroup");
             if(!dbus_message_iter_open_container(&sub_iter,
                                                  DBUS_TYPE_DICT_ENTRY,
@@ -869,7 +857,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
         }
     
     
-        if(nullable_status & SSS_SUDO_ITEM_PROMPT){
+        if(msg.prompt && *msg.prompt){
             if(!dbus_message_iter_open_container(&sub_iter,
                                                  DBUS_TYPE_DICT_ENTRY,
                                                  NULL,
@@ -902,7 +890,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
     
     
     
-        if(nullable_status & SSS_SUDO_ITEM_NETADDR){
+        if(msg.network_addrs && *msg.network_addrs){
             if(!dbus_message_iter_open_container(&sub_iter,
                                                  DBUS_TYPE_DICT_ENTRY,
                                                  NULL,
