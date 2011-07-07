@@ -665,7 +665,6 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    DBusMessageIter sub_iter;
    DBusMessageIter dict_iter;
    
-   dbus_uint32_t start_header;
    dbus_uint32_t status=0;
    dbus_bool_t ret=FALSE;
    
@@ -702,20 +701,12 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
       dbus_connection_close(conn);
       return SSS_SUDO_SYSTEM_ERR;
    }
-   
-   start_header = SSS_START_OF_SUDO_REQUEST;
 
    /* append arguments */
    
    
    dbus_message_iter_init_append(dbus_msg, &msg_iter);
        
-   if (!dbus_message_iter_append_basic(&msg_iter, 
-                                       DBUS_TYPE_UINT32,
-                                       &start_header)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
    
    if(!dbus_message_iter_open_container(&msg_iter,
                                         DBUS_TYPE_STRUCT,
