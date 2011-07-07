@@ -644,8 +644,9 @@ void calc_nullable_status(dbus_uint32_t * status)
 
 
 int sss_sudo_make_request(struct sss_cli_req_data *rd,
-                      uint8_t **repbuf, size_t *replen,
-                      int *errnop)
+                          uint8_t **repbuf,
+                          size_t *replen,
+                          int *errnop)
 {
 
    const char * truth = "TRUE";
@@ -710,502 +711,525 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    dbus_message_iter_init_append(dbus_msg, &msg_iter);
        
    if (!dbus_message_iter_append_basic(&msg_iter, 
-					DBUS_TYPE_UINT32, 
-				       &start_header)) {
+                                       DBUS_TYPE_UINT32,
+                                       &start_header)) {
       fprintf(stderr, "Out Of Memory!\n"); 
       exit(1);
    }
    
    if (!dbus_message_iter_append_basic(&msg_iter, 
-				       DBUS_TYPE_UINT32, 
-				       &nullable_status)) {
+                                       DBUS_TYPE_UINT32,
+                                       &nullable_status)) {
       fprintf(stderr, "Out Of Memory!\n"); 
       exit(1);
    }
    
       
    if(!dbus_message_iter_open_container(&msg_iter,
-					DBUS_TYPE_STRUCT,NULL,
-					&sub_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
+                                        DBUS_TYPE_STRUCT,
+                                        NULL,
+                                        &sub_iter)) {
+      fprintf(stderr, "Out Of Memory!\n");
       exit(1);
    }
-  if (!dbus_message_iter_append_basic(&sub_iter, 
-				      DBUS_TYPE_UINT32, 
-				      &msg.userid)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
+       if (!dbus_message_iter_append_basic(&sub_iter,
+                                           DBUS_TYPE_UINT32,
+                                           &msg.userid)) {
+           fprintf(stderr, "Out Of Memory!\n");
+           exit(1);
+       }
    
-  if(nullable_status & SSS_SUDO_ITEM_CWD){
-    if (!dbus_message_iter_append_basic(&sub_iter, 
-					DBUS_TYPE_STRING, 
-					&msg.cwd)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-	exit(1);
-    }
-  }
+       if(nullable_status & SSS_SUDO_ITEM_CWD){
+           if (!dbus_message_iter_append_basic(&sub_iter,
+                                               DBUS_TYPE_STRING,
+                                               &msg.cwd)) {
+                   fprintf(stderr, "Out Of Memory!\n");
+                   exit(1);
+           }
+       }
    
-  if(nullable_status & SSS_SUDO_ITEM_TTY){
-    if (!dbus_message_iter_append_basic(&sub_iter, 
-					DBUS_TYPE_STRING, 
-					&msg.tty)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-    }
-  }
+       if(nullable_status & SSS_SUDO_ITEM_TTY){
+           if (!dbus_message_iter_append_basic(&sub_iter,
+                                               DBUS_TYPE_STRING,
+                                               &msg.tty)) {
+                   fprintf(stderr, "Out Of Memory!\n");
+                   exit(1);
+           }
+       }
       
    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
+      fprintf(stderr, "Out Of Memory!\n");
       exit(1);
    }
    
-   command_array =  (char *) malloc(msg.command_count* sizeof (char*));
+   command_array = (char *) malloc(msg.command_count* sizeof (char*));
    
    for(count = 0;count<msg.command_count;count++) {
      command_array[count] = msg.command[count];
    }
    
    
-    if(nullable_status & SSS_SUDO_ITEM_COMMAND){
+   if(nullable_status & SSS_SUDO_ITEM_COMMAND){
       
-    if(!dbus_message_iter_open_container(&msg_iter,
-					 DBUS_TYPE_ARRAY,"s",
-					 &sub_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
+       if(!dbus_message_iter_open_container(&msg_iter,
+                                            DBUS_TYPE_ARRAY,
+                                            "s",
+                                            &sub_iter)) {
+           fprintf(stderr, "Out Of Memory!\n");
+           exit(1);
+       }
    
-   for(count =0; count<msg.command_count;count++){
+           for(count =0 ; count < msg.command_count ; count++) {
      
-      if (!dbus_message_iter_append_basic(&sub_iter, 
-					  DBUS_TYPE_STRING, 
-					  &command_array[count])) {
-	  fprintf(stderr, "Out Of Memory!\n"); 
-	  exit(1);
-      } 
+                   if (!dbus_message_iter_append_basic(&sub_iter,
+                                                       DBUS_TYPE_STRING,
+                                                       &command_array[count])) {
+                           fprintf(stderr, "Out Of Memory!\n");
+                           exit(1);
+                   }
      
-   }
+           }
    
-   if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-	exit(1);
-   }
+       if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
+               fprintf(stderr, "Out Of Memory!\n");
+               exit(1);
+       }
    }
    ////////
    
    if(!dbus_message_iter_open_container(&msg_iter,
-					 DBUS_TYPE_ARRAY,
-					"{ss}",
-					&sub_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-	exit(1);
+                                        DBUS_TYPE_ARRAY,
+                                        "{ss}",
+                                        &sub_iter)) {
+       fprintf(stderr, "Out Of Memory!\n");
+       exit(1);
    }
    
-    if(nullable_status & SSS_SUDO_ITEM_RUSER){
-   tmp = strdup("runasuser");
+        if(nullable_status & SSS_SUDO_ITEM_RUSER){
+            tmp = strdup("runasuser");
    
- 	if(!dbus_message_iter_open_container(&sub_iter, 
-					      DBUS_TYPE_DICT_ENTRY,NULL,
-					      &dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
+            if(!dbus_message_iter_open_container(&sub_iter,
+                                                 DBUS_TYPE_DICT_ENTRY,
+                                                 NULL,
+                                                 &dict_iter)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    exit(1);
+            }
     
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-					DBUS_TYPE_STRING,
-				       &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter,
-				      DBUS_TYPE_STRING,
-				       &msg.runas_user)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
+                if (!dbus_message_iter_append_basic(&dict_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &tmp)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    exit(1);
+                }
+                if (!dbus_message_iter_append_basic(&dict_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &msg.runas_user)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    exit(1);
+                }
+                free(tmp);
    
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
+           if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+           }
    
-    }
-    
-    
-     if(nullable_status & SSS_SUDO_ITEM_RGROUP){
-	tmp = strdup("runasgroup");
-	if(!dbus_message_iter_open_container(&sub_iter, DBUS_TYPE_DICT_ENTRY,NULL,&dict_iter)) {
-	      fprintf(stderr, "Out Of Memory!\n"); 
-	      exit(1);
-	}
-	if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp)) {
-	      fprintf(stderr, "Out Of Memory!\n"); 
-	      exit(1);
-	}
-	if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &msg.runas_group)) {
-	      fprintf(stderr, "Out Of Memory!\n"); 
-	      exit(1);
-	}
-	free(tmp);
-   
-	if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	      fprintf(stderr, "Out Of Memory!\n"); 
-	      exit(1);
-	}
-   
-    }
+        }
     
     
-     if(nullable_status & SSS_SUDO_ITEM_PROMPT){
-       if(!dbus_message_iter_open_container(&sub_iter, DBUS_TYPE_DICT_ENTRY,NULL,&dict_iter)) {
-	      fprintf(stderr, "Out Of Memory!\n"); 
-	      exit(1);
-	}
-      tmp = strdup("prompt");
+        if(nullable_status & SSS_SUDO_ITEM_RGROUP){
+            tmp = strdup("runasgroup");
+            if(!dbus_message_iter_open_container(&sub_iter,
+                                                 DBUS_TYPE_DICT_ENTRY,
+                                                 NULL,
+                                                 &dict_iter)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+                if (!dbus_message_iter_append_basic(&dict_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &tmp)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    exit(1);
+                }
+                if (!dbus_message_iter_append_basic(&dict_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &msg.runas_group)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    exit(1);
+                }
+                free(tmp);
+   
+            if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+   
+        }
+    
+    
+        if(nullable_status & SSS_SUDO_ITEM_PROMPT){
+            if(!dbus_message_iter_open_container(&sub_iter,
+                                                 DBUS_TYPE_DICT_ENTRY,
+                                                 NULL,
+                                                 &dict_iter)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            tmp = strdup("prompt");
   
-      if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp)) {
-	  fprintf(stderr, "Out Of Memory!\n"); 
-	  exit(1);
-      }
-      if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &msg.prompt)) {
-	  fprintf(stderr, "Out Of Memory!\n"); 
-	  exit(1);
-      }
-      free(tmp);
+                if (!dbus_message_iter_append_basic(&dict_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &tmp)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    exit(1);
+                }
+                if (!dbus_message_iter_append_basic(&dict_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &msg.prompt)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    exit(1);
+                }
+                free(tmp);
    
+           if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+               fprintf(stderr, "Out Of Memory!\n");
+               exit(1);
+           }
+  
+        }
+    
+    
+    
+        if(nullable_status & SSS_SUDO_ITEM_NETADDR){
+            if(!dbus_message_iter_open_container(&sub_iter,
+                                                 DBUS_TYPE_DICT_ENTRY,
+                                                 NULL,
+                                                 &dict_iter)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            tmp = strdup("networkaddress");
+     
+                if (!dbus_message_iter_append_basic(&dict_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &tmp)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    exit(1);
+                }
+                if (!dbus_message_iter_append_basic(&dict_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &msg.network_addrs)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    exit(1);
+                }
+                free(tmp);
+   
+           if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+           }
+   
+        }
+    
+    
+    
+   
+        tmp = strdup("use_sudoedit");
+        if(!dbus_message_iter_open_container(&sub_iter,
+                                             DBUS_TYPE_DICT_ENTRY,
+                                             NULL,
+                                             &dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+    
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                &tmp)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                GET_BOOL_STRING(msg.use_sudoedit))) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            free(tmp);
+   
+        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+
+
+        if(!dbus_message_iter_open_container(&sub_iter,
+                                             DBUS_TYPE_DICT_ENTRY,
+                                             NULL,
+                                             &dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+        tmp = strdup("use_set_home");
+     
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                &tmp)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                GET_BOOL_STRING(msg.use_set_home))) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            free(tmp);
+   
+        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+   
+
+   
+        if(!dbus_message_iter_open_container(&sub_iter,
+                                             DBUS_TYPE_DICT_ENTRY,
+                                             NULL,
+                                             &dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+        tmp = strdup("use_preserve_environment");
+     
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                &tmp)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                GET_BOOL_STRING(msg.use_preserve_environment))) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            free(tmp);
+   
+        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+
+
+        if(!dbus_message_iter_open_container(&sub_iter,
+                                             DBUS_TYPE_DICT_ENTRY,
+                                             NULL,
+                                             &dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+        tmp = strdup("use_implied_shell");
+    
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                &tmp)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                GET_BOOL_STRING(msg.use_implied_shell))) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            free(tmp);
+   
+       if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+           fprintf(stderr, "Out Of Memory!\n");
+           exit(1);
+       }
+
+
+       if(!dbus_message_iter_open_container(&sub_iter,
+                                            DBUS_TYPE_DICT_ENTRY,
+                                            NULL,
+                                            &dict_iter)) {
+           fprintf(stderr, "Out Of Memory!\n");
+           exit(1);
+       }
+       tmp = strdup("use_login_shell");
+     
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                &tmp)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                GET_BOOL_STRING(msg.use_login_shell))) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            free(tmp);
+   
+       if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+           fprintf(stderr, "Out Of Memory!\n");
+           exit(1);
+       }
+
+
+       if(!dbus_message_iter_open_container(&sub_iter,
+                                            DBUS_TYPE_DICT_ENTRY,
+                                            NULL,
+                                            &dict_iter)) {
+           fprintf(stderr, "Out Of Memory!\n");
+           exit(1);
+       }
+       tmp = strdup("use_run_shell");
+     
+           if (!dbus_message_iter_append_basic(&dict_iter,
+                                               DBUS_TYPE_STRING,
+                                               &tmp)) {
+               fprintf(stderr, "Out Of Memory!\n");
+               exit(1);
+           }
+           if (!dbus_message_iter_append_basic(&dict_iter,
+                                               DBUS_TYPE_STRING,
+                                               GET_BOOL_STRING(msg.use_run_shell))) {
+               fprintf(stderr, "Out Of Memory!\n");
+               exit(1);
+           }
+           free(tmp);
+
       if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	  fprintf(stderr, "Out Of Memory!\n"); 
-	  exit(1);
+           fprintf(stderr, "Out Of Memory!\n");
+           exit(1);
       }
-  
-    }
-    
-    
-    
-  if(nullable_status & SSS_SUDO_ITEM_NETADDR){
-      if(!dbus_message_iter_open_container(&sub_iter, DBUS_TYPE_DICT_ENTRY,NULL,&dict_iter)) {
-	  fprintf(stderr, "Out Of Memory!\n"); 
-	  exit(1);
-      }
-      tmp = strdup("networkaddress");
+
+
+
+        if(!dbus_message_iter_open_container(&sub_iter,
+                                             DBUS_TYPE_DICT_ENTRY,
+                                             NULL,
+                                             &dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+        tmp = strdup("use_preserve_groups");
      
-      if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp)) {
-	  fprintf(stderr, "Out Of Memory!\n"); 
-	  exit(1);
-      }
-      if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &msg.network_addrs)) {
-	  fprintf(stderr, "Out Of Memory!\n"); 
-	  exit(1);
-      }
-      free(tmp);
+              if (!dbus_message_iter_append_basic(&dict_iter,
+                                                  DBUS_TYPE_STRING,
+                                                  &tmp)) {
+                  fprintf(stderr, "Out Of Memory!\n");
+                  exit(1);
+              }
+             if (!dbus_message_iter_append_basic(&dict_iter,
+                                                 DBUS_TYPE_STRING,
+                                                 GET_BOOL_STRING(msg.use_preserve_groups))) {
+                 fprintf(stderr, "Out Of Memory!\n");
+                 exit(1);
+             }
+             free(tmp);
    
-      if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	   fprintf(stderr, "Out Of Memory!\n"); 
-	   exit(1);
-      }
-   
-  }
-    
-    
-    
-   
-   tmp = strdup("use_sudoedit");
-   if(!dbus_message_iter_open_container(&sub_iter, 
-					DBUS_TYPE_DICT_ENTRY,NULL,
-					&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-    
-   if (!dbus_message_iter_append_basic(&dict_iter,
-				      DBUS_TYPE_STRING,
-				       &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-					DBUS_TYPE_STRING, 
-				       GET_BOOL_STRING(msg.use_sudoedit))) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
-   
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if(!dbus_message_iter_open_container(&sub_iter, 
-					DBUS_TYPE_DICT_ENTRY,
-					NULL,
-					&dict_iter)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   
-   
-   tmp = strdup("use_set_home");
+        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+
+
+
+        if(!dbus_message_iter_open_container(&sub_iter,
+                                             DBUS_TYPE_DICT_ENTRY,
+                                             NULL,
+                                             &dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+        tmp = strdup("use_ignore_ticket");
      
-   if (!dbus_message_iter_append_basic(&dict_iter,
-					DBUS_TYPE_STRING, 
-				       &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-					DBUS_TYPE_STRING, 
-				       GET_BOOL_STRING(msg.use_set_home))) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                &tmp)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                GET_BOOL_STRING(msg.use_ignore_ticket))) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            free(tmp);
    
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   
-   
-   if(!dbus_message_iter_open_container(&sub_iter,
-					DBUS_TYPE_DICT_ENTRY,
-					NULL,
-					&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   
-   
-   tmp = strdup("use_preserve_environment");
+        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+
+        if(!dbus_message_iter_open_container(&sub_iter,
+                                             DBUS_TYPE_DICT_ENTRY,
+                                             NULL,
+                                             &dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+        tmp = strdup("use_noninteractive");
      
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-					DBUS_TYPE_STRING, 
-				       &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter,
-				      DBUS_TYPE_STRING, 
-				       GET_BOOL_STRING(msg.use_preserve_environment))) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                &tmp)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                GET_BOOL_STRING(msg.use_noninteractive))) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            free(tmp);
    
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-	exit(1);
-   }
-   if(!dbus_message_iter_open_container(&sub_iter, 
-					DBUS_TYPE_DICT_ENTRY,
-					NULL,
-					&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-	exit(1);
-   }
-   
-   tmp = strdup("use_implied_shell");
-    
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-				      DBUS_TYPE_STRING,
-				      &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-					DBUS_TYPE_STRING,
-				       GET_BOOL_STRING(msg.use_implied_shell))) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
-   
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if(!dbus_message_iter_open_container(&sub_iter, 
-					DBUS_TYPE_DICT_ENTRY,
-					NULL,
-					&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   
-   tmp = strdup("use_login_shell");
+        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+
+
+        if(!dbus_message_iter_open_container(&sub_iter,
+                                             DBUS_TYPE_DICT_ENTRY,
+                                             NULL,
+                                             &dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
+        tmp = strdup("use_debug_level");
      
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-				      DBUS_TYPE_STRING,
-				      &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-				      DBUS_TYPE_STRING, 
-				       GET_BOOL_STRING(msg.use_login_shell))) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                &tmp)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            if (!dbus_message_iter_append_basic(&dict_iter,
+                                                DBUS_TYPE_STRING,
+                                                GET_BOOL_STRING(msg.debug_level))) {
+                fprintf(stderr, "Out Of Memory!\n");
+                exit(1);
+            }
+            free(tmp);
    
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if(!dbus_message_iter_open_container(&sub_iter, 
-					DBUS_TYPE_DICT_ENTRY,
-					NULL,
-					&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
+        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            exit(1);
+        }
    
-   
-   tmp = strdup("use_run_shell");
-     
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-				      DBUS_TYPE_STRING, 
-				      &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-					DBUS_TYPE_STRING, 
-				       GET_BOOL_STRING(msg.use_run_shell))) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
-   
-   
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if(!dbus_message_iter_open_container(&sub_iter, 
-					DBUS_TYPE_DICT_ENTRY,
-					NULL,
-					&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   
-   
-   tmp = strdup("use_preserve_groups");
-     
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-					DBUS_TYPE_STRING, 
-				       &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-				      DBUS_TYPE_STRING, 
-				       GET_BOOL_STRING(msg.use_preserve_groups))) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
-   
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if(!dbus_message_iter_open_container(&sub_iter, 
-					DBUS_TYPE_DICT_ENTRY,
-					NULL,
-					&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   
-   
-   tmp = strdup("use_ignore_ticket");
-     
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-				      DBUS_TYPE_STRING, 
-				      &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-					DBUS_TYPE_STRING, 
-				       GET_BOOL_STRING(msg.use_ignore_ticket))) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
-   
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if(!dbus_message_iter_open_container(&sub_iter, 
-					DBUS_TYPE_DICT_ENTRY,
-					NULL,
-					&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   
-   tmp = strdup("use_noninteractive");
-     
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-				      DBUS_TYPE_STRING, 
-				       &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter,
-					DBUS_TYPE_STRING,
-				       GET_BOOL_STRING(msg.use_noninteractive))) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
-   
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if(!dbus_message_iter_open_container(&sub_iter, 
-					DBUS_TYPE_DICT_ENTRY,
-					NULL,
-					&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   
-   tmp = strdup("use_debug_level");
-     
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-				      DBUS_TYPE_STRING, 
-				       &tmp)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter, 
-				      DBUS_TYPE_STRING, 
-				       GET_BOOL_STRING(msg.debug_level))) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   free(tmp);
-   
-   
-   
-  
-  
-  
-   if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   
-    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
+   if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
+       fprintf(stderr, "Out Of Memory!\n");
+       exit(1);
    }
 
 
@@ -1213,54 +1237,53 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
   
   
   
-  if(!dbus_message_iter_open_container(&msg_iter,
-					DBUS_TYPE_ARRAY,
-				       "{ss}",
-				       &sub_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
+   if(!dbus_message_iter_open_container(&msg_iter,
+                                        DBUS_TYPE_ARRAY,
+                                        "{ss}",
+                                        &sub_iter)) {
+       fprintf(stderr, "Out Of Memory!\n");
+       exit(1);
    }
    
-  
-   for(ui = msg.user_env; *ui!=NULL;*ui++) {
-   
-     tmp = strchr(*ui,'=');
+      for(ui = msg.user_env; *ui!=NULL;*ui++) {
+          tmp = strchr(*ui,'=');
+          *tmp = '\0';
+          if(!dbus_message_iter_open_container(&sub_iter,
+                                               DBUS_TYPE_DICT_ENTRY,
+                                               NULL,
+                                               &dict_iter)) {
+              fprintf(stderr, "Out Of Memory!\n");
+              exit(1);
+          }
      
-     *tmp = '\0';
-      if(!dbus_message_iter_open_container(&sub_iter, 
-					  DBUS_TYPE_DICT_ENTRY,NULL,
-					   &dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-     
-   if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, ui)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp+1)) {
-      fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
-   *tmp = '=' ;
+              if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, ui)) {
+                  fprintf(stderr, "Out Of Memory!\n");
+                  exit(1);
+              }
+              if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp+1)) {
+                  fprintf(stderr, "Out Of Memory!\n");
+                  exit(1);
+              }
+              *tmp = '=' ;
 
-    if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
-   }
+         if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
+             fprintf(stderr, "Out Of Memory!\n");
+             exit(1);
+         }
    
-   }
+      }
 
-if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
-	fprintf(stderr, "Out Of Memory!\n"); 
-      exit(1);
+   if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
+       fprintf(stderr, "Out Of Memory!\n");
+       exit(1);
    }
 
    
    /* send message and get a handle for a reply */
    dbus_reply = dbus_connection_send_with_reply_and_block (conn,dbus_msg,
-							   600,
-							   &err);
+                                                           600,
+                                                           &err);
+   
    if (dbus_error_is_set(&err)) { 
       fprintf(stderr, "Connection send-reply Error (%s)\n", err.message); 
       dbus_error_free(&err);
@@ -1270,14 +1293,12 @@ if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
       fprintf(stderr, "reply failed\n"); 
       exit(1); 
    }
-   
-   
    fprintf(stdout,"Request Sent\n");
-     
-
-    ret = dbus_message_get_args(dbus_reply, &err,
-                                  DBUS_TYPE_UINT16, &status,
-                                  DBUS_TYPE_INVALID);
+   ret = dbus_message_get_args(dbus_reply,
+                               &err,
+                               DBUS_TYPE_UINT16,
+                               &status,
+                               DBUS_TYPE_INVALID);
     if (!ret) {
         fprintf (stderr,"Failed to parse reply, killing connection\n");
         if (dbus_error_is_set(&err)) dbus_error_free(&err);
@@ -1293,7 +1314,7 @@ if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
    dbus_message_unref(dbus_reply);
    dbus_connection_close(conn);
 
-free(command_array);
+   free(command_array);
 
 return SSS_STATUS_SUCCESS;
 
@@ -1465,7 +1486,6 @@ static int  policy_check(int argc, char * const argv[],
   msg.command_count = argc;
 
   if(pam_ret==PAM_SUCCESS) {
-    
     pam_ret = send_and_receive();   
   }
   
@@ -1508,7 +1528,8 @@ static void policy_close(int exit_status, int error)
      */
     if (error) {
 	sudo_log(SUDO_CONV_ERROR_MSG, "\nCommand error: %s\n", strerror(error));
-    } else {
+    }
+    else {
         if (WIFEXITED(exit_status)) {
 	    sudo_log(SUDO_CONV_INFO_MSG, "\nCommand exited with status %d\n",
 		WEXITSTATUS(exit_status));
