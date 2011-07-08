@@ -49,7 +49,7 @@
 #define CHECK_AND_RETURN_PI_STRING(s) ((s != NULL && *s != '\0')? s : "(not available)")
 #endif
 
-#define INIT_SETTINGS_TABLE_SIZE 14
+#define INIT_SETTINGS_TABLE_SIZE 15
 
 #define INIT_ENV_TABLE_SIZE 10
 
@@ -123,6 +123,22 @@ struct sss_sudo_msg_contents
   /* Clients pid */
   int cli_pid;
 };
+
+#define  SSS_SUDO_ITEM_RUSER                "runas_user"
+#define  SSS_SUDO_ITEM_RGROUP               "runas_group"
+#define  SSS_SUDO_ITEM_PROMPT               "prompt"
+#define  SSS_SUDO_ITEM_NETADDR              "net_addr"
+#define  SSS_SUDO_ITEM_USE_SUDOEDIT         "use_sudoedit"
+#define  SSS_SUDO_ITEM_USE_SETHOME          "use_sethome"
+#define  SSS_SUDO_ITEM_USE_PRESERV_ENV      "use_preserve_env"
+#define  SSS_SUDO_ITEM_USE_IMPLIED_SHELL    "use_implied_shell"
+#define  SSS_SUDO_ITEM_USE_LOGIN_SHELL      "use_login_shell"
+#define  SSS_SUDO_ITEM_USE_RUN_SHELL        "use_run_shell"
+#define  SSS_SUDO_ITEM_USE_PRE_GROUPS       "use_preserve_groups"
+#define  SSS_SUDO_ITEM_USE_IGNORE_TICKET    "use_ignore_ticket"
+#define  SSS_SUDO_ITEM_USE_NON_INTERACTIVE  "use_non_interactive"
+#define  SSS_SUDO_ITEM_DEBUG_LEVEL          "use_debug_level"
+#define  SSS_SUDO_ITEM_CLI_PID              "client_pid"
 
 void print_sudo_items(void);
 

@@ -632,7 +632,7 @@ int create_env_hash_table(char ** env, hash_table_t ** table_out) {
                          delete_callback,
                          NULL);
     if (err_h != HASH_SUCCESS) {
-            fprintf(stderr, "cannot create hash table (%s)\n", hash_error_string(err_h));
+            fprintf(stderr, "couldn't create hash table (%s)\n", hash_error_string(err_h));
             return err_h;
     }
 
@@ -645,7 +645,7 @@ int create_env_hash_table(char ** env, hash_table_t ** table_out) {
             value.ptr = tmp+1;
 
             if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                fprintf(stderr, "couldn't add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
                 return err_h;
             }
             *tmp = '=' ;
@@ -655,6 +655,159 @@ int create_env_hash_table(char ** env, hash_table_t ** table_out) {
     return HASH_SUCCESS;
 }
 
+int create_settings_hash_table(hash_table_t ** table_out) {
+
+    hash_table_t *local_table = NULL;
+    hash_key_t   key;
+    hash_value_t value;
+
+    char * tmp;
+    char ** ui;
+
+    int err_h;
+
+    err_h =  hash_create((unsigned long)INIT_SETTINGS_TABLE_SIZE,
+                         &local_table,
+                         delete_callback,
+                         NULL);
+    if (err_h != HASH_SUCCESS) {
+            fprintf(stderr, "couldn't create hash table (%s)\n", hash_error_string(err_h));
+            return err_h;
+    }
+            key.type = HASH_KEY_STRING;
+            value.type = HASH_VALUE_PTR;
+            key.str = strdup(SSS_SUDO_ITEM_RUSER);
+                value.ptr = msg.runas_user;
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
+
+            key.str = strdup(SSS_SUDO_ITEM_RGROUP);
+                value.ptr = msg.runas_group;
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
+
+            key.str = strdup(SSS_SUDO_ITEM_PROMPT);
+                value.ptr = msg.prompt;
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
+
+            key.str = strdup(SSS_SUDO_ITEM_NETADDR);
+                value.ptr = msg.network_addrs;
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
+
+            value.type = HASH_VALUE_INT;
+
+            key.str = strdup(SSS_SUDO_ITEM_USE_SUDOEDIT);
+                value.i = msg.use_sudoedit;
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
+
+            key.str = strdup(SSS_SUDO_ITEM_USE_SETHOME);
+                value.i = msg.use_set_home;
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
+	    
+            key.str = strdup(SSS_SUDO_ITEM_USE_PRESERV_ENV);
+                value.i = msg.use_preserve_environment;
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
+
+            key.str = strdup(SSS_SUDO_ITEM_USE_IMPLIED_SHELL);
+                value.i = msg.use_implied_shell;
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
+	    
+	    
+            key.str = strdup(SSS_SUDO_ITEM_USE_LOGIN_SHELL);
+                value.i = msg.use_login_shell;
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
+	    
+	    
+	    key.str = strdup(SSS_SUDO_ITEM_USE_RUN_SHELL);
+            value.i = msg.use_run_shell;
+            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                return err_h;
+            }
+        free(key.str);
+	    
+	    
+	    key.str = strdup(SSS_SUDO_ITEM_USE_PRE_GROUPS);
+            value.i = msg.use_preserve_groups;
+            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                return err_h;
+            }
+        free(key.str);
+	    
+	    
+	    key.str = strdup(SSS_SUDO_ITEM_USE_IGNORE_TICKET);
+            value.i = msg.use_ignore_ticket;
+            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                return err_h;
+            }
+       free(key.str);
+	    
+	    
+	    key.str = strdup(SSS_SUDO_ITEM_USE_NON_INTERACTIVE);
+            value.i = msg.use_noninteractive;
+            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                return err_h;
+            }
+      free(key.str);
+	    
+	    key.str = strdup(SSS_SUDO_ITEM_DEBUG_LEVEL);
+            value.i = msg.debug_level;
+            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                return err_h;
+            }
+       free(key.str);
+	    
+	    key.str = strdup(SSS_SUDO_ITEM_CLI_PID);
+            value.i = msg.cli_pid;
+            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                return err_h;
+            }
+       free(key.str);
+	    
+
+    *table_out = local_table;
+
+    return HASH_SUCCESS;
+}
 
 
 
@@ -710,7 +863,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    dbus_bool_t ret=FALSE;
    
 
-   //hash_table_t **settings_table;
+   hash_table_t **settings_table;
    hash_table_t **env_table;
 
 
@@ -721,10 +874,17 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    }
 
    err_status = create_env_hash_table(msg.user_env,env_table);
-   if(err_status != HASH_SUCCESS) {
+       if(err_status != HASH_SUCCESS) {
           fprintf(stderr, "ccouldn't create table: %s\n", hash_error_string(err_status));
           return SSS_SUDO_MESSAGE_ERR;
-      }
+       }
+
+
+   err_status = create_settings_hash_table(msg.user_env,env_table);
+       if(err_status != HASH_SUCCESS) {
+          fprintf(stderr, "ccouldn't create table: %s\n", hash_error_string(err_status));
+          return SSS_SUDO_MESSAGE_ERR;
+       }
    /* initialise the errors */
    dbus_error_init(&err);
 
