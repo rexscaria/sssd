@@ -89,21 +89,7 @@ enum sss_sudo_validation_status {
 };
 
 
-
-enum sudo_nullable_item_type{
-
-  SSS_SUDO_ITEM_CWD = 0x0001,
-  SSS_SUDO_ITEM_TTY = 0x0002,
-  SSS_SUDO_ITEM_RUSER = 0x0004,
-  SSS_SUDO_ITEM_RGROUP = 0x0008,
-  SSS_SUDO_ITEM_PROMPT = 0x0010,
-  SSS_SUDO_ITEM_NETADDR = 0x0020,
-  SSS_SUDO_ITEM_COMMAND = 0x0040,
-  SSS_SUDO_ITEM_USER_ENV = 0x0080
-
-};
-
-static struct sss_sudo_msg_contents
+struct sss_sudo_msg_contents
 {
 
   /* from user_info */
@@ -137,5 +123,8 @@ static struct sss_sudo_msg_contents
   /* Clients pid */
   int cli_pid;
 };
+
+void print_sudo_items(void);
+
 
 #endif  /* _SSS_SUDO_CLI_H_ */

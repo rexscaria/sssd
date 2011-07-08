@@ -83,8 +83,6 @@
 #include "missing.h"
 #include <sudo_plugin.h>
 
-
-
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
 
@@ -92,8 +90,6 @@
 #include "dhash.h"
 
 #include "sss_sudo_cli.h"
-
-
 
 
 #ifdef __TANDEM
@@ -124,7 +120,7 @@
 
 #define CHECK_AND_RETURN_BOOL_STRING(obj)  ((obj)?"FALSE":"TRUE")
 
-static struct plugin_state {
+struct plugin_state {
     char **envp;
     char * const *settings;
     char * const *user_info;
@@ -143,7 +139,7 @@ static int debug_level;
  * code.
  */
 
-static struct user_info_struct
+struct user_info_struct
 {
   char *username;
   int lines;
@@ -157,22 +153,16 @@ static struct user_info_struct
 
 struct sss_sudo_msg_contents msg;
 
-
-
-
 static struct pam_conv conv = {
     misc_conv,
     NULL
 };
 
 
-
-
-
-static void print_sudo_items()
+void print_sudo_items(void)
 {
-    if (msg.userid < 0) return;
-    D(("Sending data to sssd:: "));
+
+    D(("Sending data to sssd sudo responder."));
     D(("UserID: %d", msg.userid));
     D(("TTY: %s", CHECK_AND_RETURN_PI_STRING(msg.tty)));
     D(("CWD: %s", CHECK_AND_RETURN_PI_STRING(msg.cwd)));
@@ -196,9 +186,8 @@ static void print_sudo_items()
 }
 
 
-
 /* initialise size of message contents as zero and boolean values as FALSE */
-static void init_size_of_msg_contents()
+void init_size_of_msg_contents( void )
 {
   msg.userid=-1;
 
@@ -224,12 +213,12 @@ static void init_size_of_msg_contents()
  * plugin by sudo utility.
  * 
  */
-static int policy_open(unsigned int version, 
-		       sudo_conv_t conversation,
-		       sudo_printf_t sudo_printf,
-		       char * const settings[],
-		       char * const user_info[],
-		       char * const user_env[])
+int policy_open(unsigned int version,
+                sudo_conv_t conversation,
+                sudo_printf_t sudo_printf,
+                char * const settings[],
+                char * const user_info[],
+                char * const user_env[])
 {
    char * const *ui;
    struct passwd *pw;
@@ -459,7 +448,7 @@ static int policy_open(unsigned int version,
 }
 
 /* Function to check if the command is available in the PATH */
-static char * find_in_path(char *command, char **envp)
+char * find_in_path(char *command, char **envp)
 {
     struct stat sb;
     char *path;
@@ -509,7 +498,7 @@ static char * find_in_path(char *command, char **envp)
 	 * populating the vector, which must be terminated with a  NULL pointer.
 	 * 
 	 */
-static char ** build_command_info(char *command)
+char ** build_command_info(char *command)
 {
     static char **command_info;
     int i = 0;
@@ -549,7 +538,7 @@ static char ** build_command_info(char *command)
 
 
   /* finds a valid editor for sudo edit or "sudo vi" */
-static char * find_editor(int nfiles, char * const files[], char **argv_out[])
+char * find_editor(int nfiles, char * const files[], char **argv_out[])
 {
     char *cp;
     char **ep;
@@ -626,19 +615,20 @@ void delete_callback(hash_entry_t *entry, hash_destroy_enum type, void *pvt)
         free(entry->value.ptr);
 }
 
+
 int create_env_hash_table(char ** env, hash_table_t ** table_out) {
 
-    static hash_table_t *table = NULL;
-    hash_key_t key, *keys;
+    hash_table_t *local_table = NULL;
+    hash_key_t   key;
     hash_value_t value;
 
     char * tmp;
-    char * ui;
+    char ** ui;
 
     int err_h;
 
     err_h =  hash_create((unsigned long)INIT_ENV_TABLE_SIZE,
-                         &table,
+                         &local_table,
                          delete_callback,
                          NULL);
     if (err_h != HASH_SUCCESS) {
@@ -646,21 +636,21 @@ int create_env_hash_table(char ** env, hash_table_t ** table_out) {
             return err_h;
     }
 
-    for(ui = msg.user_env; *ui!=NULL;*ui++) {
+    for(ui = (char **) msg.user_env; *ui!=NULL; ui++) {
         tmp = strchr(*ui,'=');
         *tmp = '\0';
             key.type = HASH_KEY_STRING;
             key.str = strdup(*ui);
             value.type = HASH_VALUE_PTR;
-            value.ptr = &tmp+1;
+            value.ptr = tmp+1;
 
-            if ((err_h = hash_enter(table, &key, &value)) != HASH_SUCCESS) {
+            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
                 fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
                 return err_h;
             }
             *tmp = '=' ;
     }
-    table_out = &table;
+    *table_out = local_table;
 
     return HASH_SUCCESS;
 }
@@ -669,7 +659,7 @@ int create_env_hash_table(char ** env, hash_table_t ** table_out) {
 
 
 
-int validate_message_content()
+int validate_message_content( void )
 {
     if(!msg.cwd && !*msg.cwd) {
         fprintf(stderr,"fatal: Current working directory is invalid.");
@@ -703,7 +693,6 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    char ** command_array;
    int count;
    char *tmp;
-   char **ui;
    int err_status;
    
 #define GET_BOOL_STRING(x) ((x)? &truth : &fallacy)
@@ -721,7 +710,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    dbus_bool_t ret=FALSE;
    
 
-   hash_table_t **settings_table;
+   //hash_table_t **settings_table;
    hash_table_t **env_table;
 
 
@@ -806,7 +795,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
       return SSS_SUDO_MESSAGE_ERR;
    }
    
-   command_array = (char *) malloc(msg.command_count* sizeof (char*));
+   command_array = (char **) malloc(msg.command_count* sizeof (char*));
    
    for(count = 0;count<msg.command_count;count++) {
      command_array[count] = msg.command[count];
@@ -1287,10 +1276,10 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
        return SSS_SUDO_MESSAGE_ERR;
    }
    
+     // DO the dhash to Iter for env
 
 
-
-      for(ui = msg.user_env; *ui!=NULL;*ui++) {
+     /* for(ui = msg.user_env; *ui!=NULL;ui++) {
           tmp = strchr(*ui,'=');
           *tmp = '\0';
           if(!dbus_message_iter_open_container(&sub_iter,
@@ -1316,7 +1305,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
              return SSS_SUDO_MESSAGE_ERR;
          }
    
-      }
+      }*/
 
    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
        fprintf(stderr, "Out Of Memory!\n");
@@ -1365,7 +1354,7 @@ return SSS_STATUS_SUCCESS;
 
 }
 
-void free_all()
+void free_all( void )
 {
   free(msg.cwd);
   free(msg.tty);
@@ -1378,7 +1367,7 @@ void free_all()
 }
 
 
-static int send_and_receive()
+int send_and_receive()
 {
     int ret;
     int errnop;
@@ -1426,7 +1415,7 @@ done:
  * The check_policy function is called by sudo to determine
  * whether the user is allowed to run the specified commands.
  */
-static int  policy_check(int argc, char * const argv[],
+int  policy_check(int argc, char * const argv[],
     char *env_add[], char **command_info_out[],
     char **argv_out[], char **user_env_out[])
 {
@@ -1527,7 +1516,7 @@ static int  policy_check(int argc, char * const argv[],
   /* pam is success :) */
   pam_end(pamh, pam_ret);
 
-  msg.command = argv;
+  msg.command = (char **) argv;
   msg.command_count = argc;
 
   if(pam_ret==PAM_SUCCESS) {
@@ -1548,7 +1537,7 @@ static int  policy_check(int argc, char * const argv[],
   return FALSE;
 }
 
-static int policy_list(int argc, char * const argv[], int verbose, const char *list_user)
+int policy_list(int argc, char * const argv[], int verbose, const char *list_user)
 {
     /*
      * List user's capabilities.
@@ -1559,14 +1548,14 @@ static int policy_list(int argc, char * const argv[], int verbose, const char *l
 
 
 
-static int policy_version(int verbose)
+int policy_version(int verbose)
 {
     sudo_log(SUDO_CONV_INFO_MSG, "%sv\nSudo Plugin API version %dv\nSSSD sudo plugin version %s\n", SUDO_PACKAGE_STRING,SUDO_API_VERSION,SSS_SUDO_PLUGIN_VERSION);
     return TRUE;
 }
 
 
-static void policy_close(int exit_status, int error)
+void policy_close(int exit_status, int error)
 {
     /*
      * The close function is called when the command being run by sudo finishes.
@@ -1586,20 +1575,24 @@ static void policy_close(int exit_status, int error)
 }
 
 
+
+/* SUDO Plugin structure */
+struct policy_plugin sss_sudo_policy = {
+SUDO_POLICY_PLUGIN,
+SUDO_API_VERSION,
+policy_open,
+policy_close,
+policy_version,
+policy_check,
+policy_list,
+NULL, /* validate */
+NULL /* invalidate */
+};
+
 /* IO_PLUGIN is not needed */
 
 
-struct policy_plugin sss_sudo_policy = {
-    SUDO_POLICY_PLUGIN,
-    SUDO_API_VERSION,
-    policy_open,
-    policy_close,
-    policy_version,
-    policy_check,
-    policy_list,
-    NULL, /* validate */
-    NULL /* invalidate */
-};
+
 
 
 
