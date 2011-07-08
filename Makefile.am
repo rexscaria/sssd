@@ -408,7 +408,7 @@ sssd_sudo_LDADD = \
     $(SSSD_LIBS) \
     libsss_util.la
 sssd_sudo_LDFLAGS = \
-    -g
+	-g
 
 sssd_be_SOURCES = \
     src/providers/data_provider_be.c \
@@ -764,6 +764,7 @@ pam_sss_la_LDFLAGS = \
     -lpam \
     -module \
     -avoid-version \
+    -g \
     -Wl,--version-script,$(srcdir)/src/sss_client/sss_pam.exports
 
 dist_noinst_DATA += \
@@ -781,13 +782,15 @@ libsss_sudoplugin_la_LDFLAGS = \
     -lpam \
     -lpam_misc \
     $(DBUS_LIBS) \
-    -g
-
-libsss_sudoplugin_CPPFLAGS = \
-     $(AM_CPPFLAGS) \
-     -D_GNU_SOURCE
+    $(DHASH_LIBS)
     
-
+libsss_sudoplugin_la_CPPFLAGS = \
+     $(AM_CPPFLAGS) \
+     -D_GNU_SOURCE \
+     -g
+     
+    
+    
 ####################
 # Plugin Libraries #
 ####################
