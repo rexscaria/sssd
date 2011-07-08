@@ -83,12 +83,13 @@
 #include "missing.h"
 #include <sudo_plugin.h>
 
-#define PAM_DEBUG 1
+
 
 #include <security/pam_appl.h>
 #include <security/pam_misc.h>
 
 #include <dbus/dbus.h>
+#include "dhash.h"
 
 #include "sss_sudo_cli.h"
 
@@ -618,6 +619,56 @@ static char * find_editor(int nfiles, char * const files[], char **argv_out[])
     return editor_path;
 }
 
+
+void delete_callback(hash_entry_t *entry, hash_destroy_enum type, void *pvt)
+{
+    if (entry->value.type == HASH_VALUE_PTR)
+        free(entry->value.ptr);
+}
+
+int create_env_hash_table(char ** env, hash_table_t ** table_out) {
+
+    static hash_table_t *table = NULL;
+    hash_key_t key, *keys;
+    hash_value_t value;
+
+    char * tmp;
+    char * ui;
+
+    int err_h;
+
+    err_h =  hash_create((unsigned long)INIT_ENV_TABLE_SIZE,
+                         &table,
+                         delete_callback,
+                         NULL);
+    if (err_h != HASH_SUCCESS) {
+            fprintf(stderr, "cannot create hash table (%s)\n", hash_error_string(err_h));
+            return err_h;
+    }
+
+    for(ui = msg.user_env; *ui!=NULL;*ui++) {
+        tmp = strchr(*ui,'=');
+        *tmp = '\0';
+            key.type = HASH_KEY_STRING;
+            key.str = strdup(*ui);
+            value.type = HASH_VALUE_PTR;
+            value.ptr = &tmp+1;
+
+            if ((err_h = hash_enter(table, &key, &value)) != HASH_SUCCESS) {
+                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                return err_h;
+            }
+            *tmp = '=' ;
+    }
+    table_out = &table;
+
+    return HASH_SUCCESS;
+}
+
+
+
+
+
 int validate_message_content()
 {
     if(!msg.cwd && !*msg.cwd) {
@@ -653,6 +704,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    int count;
    char *tmp;
    char **ui;
+   int err_status;
    
 #define GET_BOOL_STRING(x) ((x)? &truth : &fallacy)
    
@@ -669,23 +721,34 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    dbus_bool_t ret=FALSE;
    
 
+   hash_table_t **settings_table;
+   hash_table_t **env_table;
+
+
    fprintf(stdout,"Calling remote method to pack message\n");
    
    if(validate_message_content() !=  SSS_SUDO_VALIDATION_SUCCESS) {
-       return SSS_SUDO_MESSAGE_ERR;
+       return SSS_SUDO_VALIDATION_ERR;
    }
 
+   err_status = create_env_hash_table(msg.user_env,env_table);
+   if(err_status != HASH_SUCCESS) {
+          fprintf(stderr, "ccouldn't create table: %s\n", hash_error_string(err_status));
+          return SSS_SUDO_MESSAGE_ERR;
+      }
    /* initialise the errors */
    dbus_error_init(&err);
 
    /* connect to the system bus and check for errors */
    conn = dbus_connection_open_private(SSS_SUDO_SERVICE_PIPE, &err);
+
    if (dbus_error_is_set(&err)) { 
       fprintf(stderr, "Connection Error (%s)\n", err.message); 
       dbus_error_free(&err);
+      return SSS_SUDO_CONNECTION_ERR;
    }
    if (NULL == conn) { 
-      return SSS_SUDO_SYSTEM_ERR; 
+      return SSS_SUDO_CONNECTION_ERR;
    }
 
 
@@ -699,7 +762,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
       if (dbus_error_is_set(&err)) 
 	  dbus_error_free(&err);
       dbus_connection_close(conn);
-      return SSS_SUDO_SYSTEM_ERR;
+      return SSS_SUDO_MESSAGE_ERR;
    }
 
    /* append arguments */
@@ -713,20 +776,20 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                         NULL,
                                         &sub_iter)) {
       fprintf(stderr, "Out Of Memory!\n");
-      exit(1);
+      return SSS_SUDO_MESSAGE_ERR;
    }
        if (!dbus_message_iter_append_basic(&sub_iter,
                                            DBUS_TYPE_UINT32,
                                            &msg.userid)) {
            fprintf(stderr, "Out Of Memory!\n");
-           exit(1);
+           return SSS_SUDO_MESSAGE_ERR;
        }
 
        if (!dbus_message_iter_append_basic(&sub_iter,
                                            DBUS_TYPE_STRING,
                                            &msg.cwd)) {
            fprintf(stderr, "Out Of Memory!\n");
-           exit(1);
+           return SSS_SUDO_MESSAGE_ERR;
        }
 
    
@@ -735,12 +798,12 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                DBUS_TYPE_STRING,
                                                &msg.tty)) {
          fprintf(stderr, "Out Of Memory!\n");
-         exit(1);
+         return SSS_SUDO_MESSAGE_ERR;
      }
       
    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
       fprintf(stderr, "Out Of Memory!\n");
-      exit(1);
+      return SSS_SUDO_MESSAGE_ERR;
    }
    
    command_array = (char *) malloc(msg.command_count* sizeof (char*));
@@ -756,7 +819,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                         "s",
                                         &sub_iter)) {
        fprintf(stderr, "Out Of Memory!\n");
-       exit(1);
+       return SSS_SUDO_MESSAGE_ERR;
    }
    
         for(count =0 ; count < msg.command_count ; count++) {
@@ -765,14 +828,14 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                        DBUS_TYPE_STRING,
                                                        &command_array[count])) {
                            fprintf(stderr, "Out Of Memory!\n");
-                           exit(1);
+                           return SSS_SUDO_MESSAGE_ERR;
                    }
      
         }
    
     if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
         fprintf(stderr, "Out Of Memory!\n");
-        exit(1);
+        return SSS_SUDO_MESSAGE_ERR;
     }
    ////////
    
@@ -781,7 +844,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                         "{ss}",
                                         &sub_iter)) {
        fprintf(stderr, "Out Of Memory!\n");
-       exit(1);
+       return SSS_SUDO_MESSAGE_ERR;
    }
    
         if(msg.runas_user && *msg.runas_user ){
@@ -792,26 +855,26 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                  NULL,
                                                  &dict_iter)) {
                     fprintf(stderr, "Out Of Memory!\n");
-                    exit(1);
+                    return SSS_SUDO_MESSAGE_ERR;
             }
     
                 if (!dbus_message_iter_append_basic(&dict_iter,
                                                     DBUS_TYPE_STRING,
                                                     &tmp)) {
                     fprintf(stderr, "Out Of Memory!\n");
-                    exit(1);
+                    return SSS_SUDO_MESSAGE_ERR;
                 }
                 if (!dbus_message_iter_append_basic(&dict_iter,
                                                     DBUS_TYPE_STRING,
                                                     &msg.runas_user)) {
                     fprintf(stderr, "Out Of Memory!\n");
-                    exit(1);
+                    return SSS_SUDO_MESSAGE_ERR;
                 }
                 free(tmp);
    
            if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
            }
    
         }
@@ -824,25 +887,25 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                  NULL,
                                                  &dict_iter)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
                 if (!dbus_message_iter_append_basic(&dict_iter,
                                                     DBUS_TYPE_STRING,
                                                     &tmp)) {
                     fprintf(stderr, "Out Of Memory!\n");
-                    exit(1);
+                    return SSS_SUDO_MESSAGE_ERR;
                 }
                 if (!dbus_message_iter_append_basic(&dict_iter,
                                                     DBUS_TYPE_STRING,
                                                     &msg.runas_group)) {
                     fprintf(stderr, "Out Of Memory!\n");
-                    exit(1);
+                    return SSS_SUDO_MESSAGE_ERR;
                 }
                 free(tmp);
    
             if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
    
         }
@@ -854,7 +917,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                  NULL,
                                                  &dict_iter)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             tmp = strdup("prompt");
   
@@ -862,19 +925,19 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                     DBUS_TYPE_STRING,
                                                     &tmp)) {
                     fprintf(stderr, "Out Of Memory!\n");
-                    exit(1);
+                    return SSS_SUDO_MESSAGE_ERR;
                 }
                 if (!dbus_message_iter_append_basic(&dict_iter,
                                                     DBUS_TYPE_STRING,
                                                     &msg.prompt)) {
                     fprintf(stderr, "Out Of Memory!\n");
-                    exit(1);
+                    return SSS_SUDO_MESSAGE_ERR;
                 }
                 free(tmp);
    
            if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
                fprintf(stderr, "Out Of Memory!\n");
-               exit(1);
+               return SSS_SUDO_MESSAGE_ERR;
            }
   
         }
@@ -887,7 +950,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                  NULL,
                                                  &dict_iter)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             tmp = strdup("networkaddress");
      
@@ -895,19 +958,19 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                     DBUS_TYPE_STRING,
                                                     &tmp)) {
                     fprintf(stderr, "Out Of Memory!\n");
-                    exit(1);
+                    return SSS_SUDO_MESSAGE_ERR;
                 }
                 if (!dbus_message_iter_append_basic(&dict_iter,
                                                     DBUS_TYPE_STRING,
                                                     &msg.network_addrs)) {
                     fprintf(stderr, "Out Of Memory!\n");
-                    exit(1);
+                    return SSS_SUDO_MESSAGE_ERR;
                 }
                 free(tmp);
    
            if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
            }
    
         }
@@ -921,26 +984,26 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                              NULL,
                                              &dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
     
             if (!dbus_message_iter_append_basic(&dict_iter,
                                                 DBUS_TYPE_STRING,
                                                 &tmp)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             if (!dbus_message_iter_append_basic(&dict_iter,
                                                 DBUS_TYPE_STRING,
                                                 GET_BOOL_STRING(msg.use_sudoedit))) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             free(tmp);
    
         if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
 
 
@@ -949,7 +1012,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                              NULL,
                                              &dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
         tmp = strdup("use_set_home");
      
@@ -957,19 +1020,19 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                 DBUS_TYPE_STRING,
                                                 &tmp)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             if (!dbus_message_iter_append_basic(&dict_iter,
                                                 DBUS_TYPE_STRING,
                                                 GET_BOOL_STRING(msg.use_set_home))) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             free(tmp);
    
         if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
    
 
@@ -979,7 +1042,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                              NULL,
                                              &dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
         tmp = strdup("use_preserve_environment");
      
@@ -987,19 +1050,19 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                 DBUS_TYPE_STRING,
                                                 &tmp)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             if (!dbus_message_iter_append_basic(&dict_iter,
                                                 DBUS_TYPE_STRING,
                                                 GET_BOOL_STRING(msg.use_preserve_environment))) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             free(tmp);
    
         if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
 
 
@@ -1008,7 +1071,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                              NULL,
                                              &dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
         tmp = strdup("use_implied_shell");
     
@@ -1016,19 +1079,19 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                 DBUS_TYPE_STRING,
                                                 &tmp)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             if (!dbus_message_iter_append_basic(&dict_iter,
                                                 DBUS_TYPE_STRING,
                                                 GET_BOOL_STRING(msg.use_implied_shell))) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             free(tmp);
    
        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
            fprintf(stderr, "Out Of Memory!\n");
-           exit(1);
+           return SSS_SUDO_MESSAGE_ERR;
        }
 
 
@@ -1037,7 +1100,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                             NULL,
                                             &dict_iter)) {
            fprintf(stderr, "Out Of Memory!\n");
-           exit(1);
+           return SSS_SUDO_MESSAGE_ERR;
        }
        tmp = strdup("use_login_shell");
      
@@ -1045,19 +1108,19 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                 DBUS_TYPE_STRING,
                                                 &tmp)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             if (!dbus_message_iter_append_basic(&dict_iter,
                                                 DBUS_TYPE_STRING,
                                                 GET_BOOL_STRING(msg.use_login_shell))) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             free(tmp);
    
        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
            fprintf(stderr, "Out Of Memory!\n");
-           exit(1);
+           return SSS_SUDO_MESSAGE_ERR;
        }
 
 
@@ -1066,7 +1129,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                             NULL,
                                             &dict_iter)) {
            fprintf(stderr, "Out Of Memory!\n");
-           exit(1);
+           return SSS_SUDO_MESSAGE_ERR;
        }
        tmp = strdup("use_run_shell");
      
@@ -1074,19 +1137,19 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                DBUS_TYPE_STRING,
                                                &tmp)) {
                fprintf(stderr, "Out Of Memory!\n");
-               exit(1);
+               return SSS_SUDO_MESSAGE_ERR;
            }
            if (!dbus_message_iter_append_basic(&dict_iter,
                                                DBUS_TYPE_STRING,
                                                GET_BOOL_STRING(msg.use_run_shell))) {
                fprintf(stderr, "Out Of Memory!\n");
-               exit(1);
+               return SSS_SUDO_MESSAGE_ERR;
            }
            free(tmp);
 
       if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
            fprintf(stderr, "Out Of Memory!\n");
-           exit(1);
+           return SSS_SUDO_MESSAGE_ERR;
       }
 
 
@@ -1096,7 +1159,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                              NULL,
                                              &dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
         tmp = strdup("use_preserve_groups");
      
@@ -1104,19 +1167,19 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                   DBUS_TYPE_STRING,
                                                   &tmp)) {
                   fprintf(stderr, "Out Of Memory!\n");
-                  exit(1);
+                  return SSS_SUDO_MESSAGE_ERR;
               }
              if (!dbus_message_iter_append_basic(&dict_iter,
                                                  DBUS_TYPE_STRING,
                                                  GET_BOOL_STRING(msg.use_preserve_groups))) {
                  fprintf(stderr, "Out Of Memory!\n");
-                 exit(1);
+                 return SSS_SUDO_MESSAGE_ERR;
              }
              free(tmp);
    
         if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
 
 
@@ -1126,7 +1189,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                              NULL,
                                              &dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
         tmp = strdup("use_ignore_ticket");
      
@@ -1134,19 +1197,19 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                 DBUS_TYPE_STRING,
                                                 &tmp)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             if (!dbus_message_iter_append_basic(&dict_iter,
                                                 DBUS_TYPE_STRING,
                                                 GET_BOOL_STRING(msg.use_ignore_ticket))) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             free(tmp);
    
         if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
 
         if(!dbus_message_iter_open_container(&sub_iter,
@@ -1154,7 +1217,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                              NULL,
                                              &dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
         tmp = strdup("use_noninteractive");
      
@@ -1162,19 +1225,19 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                 DBUS_TYPE_STRING,
                                                 &tmp)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             if (!dbus_message_iter_append_basic(&dict_iter,
                                                 DBUS_TYPE_STRING,
                                                 GET_BOOL_STRING(msg.use_noninteractive))) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             free(tmp);
    
         if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
 
 
@@ -1183,7 +1246,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                              NULL,
                                              &dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
         tmp = strdup("use_debug_level");
      
@@ -1191,24 +1254,24 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                 DBUS_TYPE_STRING,
                                                 &tmp)) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             if (!dbus_message_iter_append_basic(&dict_iter,
                                                 DBUS_TYPE_STRING,
                                                 GET_BOOL_STRING(msg.debug_level))) {
                 fprintf(stderr, "Out Of Memory!\n");
-                exit(1);
+                return SSS_SUDO_MESSAGE_ERR;
             }
             free(tmp);
    
         if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
             fprintf(stderr, "Out Of Memory!\n");
-            exit(1);
+            return SSS_SUDO_MESSAGE_ERR;
         }
    
    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
        fprintf(stderr, "Out Of Memory!\n");
-       exit(1);
+       return SSS_SUDO_MESSAGE_ERR;
    }
 
 
@@ -1221,9 +1284,12 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                         "{ss}",
                                         &sub_iter)) {
        fprintf(stderr, "Out Of Memory!\n");
-       exit(1);
+       return SSS_SUDO_MESSAGE_ERR;
    }
    
+
+
+
       for(ui = msg.user_env; *ui!=NULL;*ui++) {
           tmp = strchr(*ui,'=');
           *tmp = '\0';
@@ -1232,29 +1298,29 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                                NULL,
                                                &dict_iter)) {
               fprintf(stderr, "Out Of Memory!\n");
-              exit(1);
+              return SSS_SUDO_MESSAGE_ERR;
           }
      
               if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, ui)) {
                   fprintf(stderr, "Out Of Memory!\n");
-                  exit(1);
+                  return SSS_SUDO_MESSAGE_ERR;
               }
               if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp+1)) {
                   fprintf(stderr, "Out Of Memory!\n");
-                  exit(1);
+                  return SSS_SUDO_MESSAGE_ERR;
               }
               *tmp = '=' ;
 
          if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
              fprintf(stderr, "Out Of Memory!\n");
-             exit(1);
+             return SSS_SUDO_MESSAGE_ERR;
          }
    
       }
 
    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
        fprintf(stderr, "Out Of Memory!\n");
-       exit(1);
+       return SSS_SUDO_MESSAGE_ERR;
    }
 
    
@@ -1262,17 +1328,17 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    dbus_reply = dbus_connection_send_with_reply_and_block (conn,dbus_msg,
                                                            600,
                                                            &err);
-   
+   fprintf(stdout,"Request Sent\n");
    if (dbus_error_is_set(&err)) { 
       fprintf(stderr, "Connection send-reply Error (%s)\n", err.message); 
       dbus_error_free(&err);
-      exit(1);
+      return SSS_SUDO_REPLY_ERR;
    }
    if (NULL == dbus_reply) { 
       fprintf(stderr, "reply failed\n"); 
-      exit(1); 
+      return SSS_SUDO_REPLY_ERR;
    }
-   fprintf(stdout,"Request Sent\n");
+
    ret = dbus_message_get_args(dbus_reply,
                                &err,
                                DBUS_TYPE_UINT16,
@@ -1282,7 +1348,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
         fprintf (stderr,"Failed to parse reply, killing connection\n");
         if (dbus_error_is_set(&err)) dbus_error_free(&err);
         dbus_connection_close(conn);
-        return SSS_SUDO_SYSTEM_ERR;
+        return SSS_SUDO_REPLY_ERR;
     }
     
    fprintf(stdout,"Got Reply: %d\n", status);
@@ -1345,12 +1411,12 @@ static int send_and_receive()
 
 
 done:
-    _status = SSS_STATUS_SUCCESS;
+    _status = SSS_SUDO_SUCCESS;
 
-    if (_status == SSS_STATUS_SUCCESS)
+    if (_status == SSS_SUDO_SUCCESS)
 	return _status;
     else
-	return SSS_STATUS_UNAVAIL;
+	return SSS_SUDO_FAILED;
 }
 
 
@@ -1476,7 +1542,7 @@ static int  policy_check(int argc, char * const argv[],
 	sudo_log(SUDO_CONV_ERROR_MSG, "out of memory\n");
 	return ERROR;
     }
-  if(pam_ret==SSS_STATUS_SUCCESS)
+  if(pam_ret==SSS_SUDO_SUCCESS)
     return TRUE;
 
   return FALSE;

@@ -49,6 +49,10 @@
 #define CHECK_AND_RETURN_PI_STRING(s) ((s != NULL && *s != '\0')? s : "(not available)")
 #endif
 
+#define INIT_SETTINGS_TABLE_SIZE 14
+
+#define INIT_ENV_TABLE_SIZE 10
+
 #ifndef _SSSCLI_H
 
    /* If sss_cli.h is not included */
@@ -68,11 +72,14 @@ enum sss_status {
 enum error_types_sudo{
 
   SSS_SUDO_SUCCESS = 0x01,
+  SSS_SUDO_FAILED,
   SSS_SUDO_BUF_ERR,
+  SSS_SUDO_CONNECTION_ERR,
   SSS_SUDO_SYSTEM_ERR,
   SSS_SUDO_LOG_ERR,
   SSS_SUDO_LOG_NOTICE,
-  SSS_SUDO_MESSAGE_ERR
+  SSS_SUDO_MESSAGE_ERR,
+  SSS_SUDO_REPLY_ERR
 
 };
 
@@ -92,7 +99,7 @@ enum sudo_nullable_item_type{
   SSS_SUDO_ITEM_PROMPT = 0x0010,
   SSS_SUDO_ITEM_NETADDR = 0x0020,
   SSS_SUDO_ITEM_COMMAND = 0x0040,
-  SSS_SUDO_ITEM_USER_ENV = 0x0080,
+  SSS_SUDO_ITEM_USER_ENV = 0x0080
 
 };
 
