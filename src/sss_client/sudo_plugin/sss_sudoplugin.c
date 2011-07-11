@@ -91,6 +91,8 @@
 
 #include "sss_sudo_cli.h"
 
+#include "sbus/sssd_dbus_messages_helpers.h"
+
 
 #ifdef __TANDEM
 /* If it is a tandem system */
@@ -118,10 +120,10 @@
 #define SSS_SUDO_PAM_SERVICE "sudo"
 
 
-#define CHECK_AND_RETURN_BOOL_STRING(obj)  ((obj)?"FALSE":"TRUE")
+#define CHECK_AND_RETURN_BOOL_STRING(obj)  ((obj)?"TRUE":"FALSE")
 
 struct plugin_state {
-    char **envp;
+    char * const *envp;
     char * const *settings;
     char * const *user_info;
 } plugin_state;
@@ -157,6 +159,9 @@ static struct pam_conv conv = {
     misc_conv,
     NULL
 };
+
+
+#define GET_BOOL_STRING(x) ((x)? strdup("TRUE") : strdup("FALSE"))
 
 
 void print_sudo_items(void)
@@ -438,8 +443,8 @@ int policy_open(unsigned int version,
     }
 
     /* fill Plugin state. */
-    plugin_state.envp = (char **)user_env;
-    msg.user_env = (char **)user_env;
+    plugin_state.envp = user_env;
+    msg.user_env = user_env;
     /* FIXME: Set a mechanism to handle environment */
     plugin_state.settings = settings;
     plugin_state.user_info = user_info;
@@ -623,7 +628,7 @@ int create_env_hash_table(char ** env, hash_table_t ** table_out) {
     hash_value_t value;
 
     char * tmp;
-    char ** ui;
+    char **ui;
 
     int err_h;
 
@@ -650,6 +655,7 @@ int create_env_hash_table(char ** env, hash_table_t ** table_out) {
             }
             *tmp = '=' ;
     }
+
     *table_out = local_table;
 
     return HASH_SUCCESS;
@@ -661,8 +667,8 @@ int create_settings_hash_table(hash_table_t ** table_out) {
     hash_key_t   key;
     hash_value_t value;
 
-    char * tmp;
-    char ** ui;
+    const char * truth = strdup("TRUE");
+    const char * fallacy = strdup("FALSE");
 
     int err_h;
 
@@ -676,42 +682,48 @@ int create_settings_hash_table(hash_table_t ** table_out) {
     }
             key.type = HASH_KEY_STRING;
             value.type = HASH_VALUE_PTR;
-            key.str = strdup(SSS_SUDO_ITEM_RUSER);
-                value.ptr = msg.runas_user;
-                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
-                    return err_h;
-                }
-            free(key.str);
+            if(msg.runas_user && *msg.runas_user ){
+                key.str = strdup(SSS_SUDO_ITEM_RUSER);
+                    value.ptr = msg.runas_user;
+                    if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                        fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                        return err_h;
+                    }
+                    free(key.str);
+            }
 
-            key.str = strdup(SSS_SUDO_ITEM_RGROUP);
-                value.ptr = msg.runas_group;
-                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
-                    return err_h;
-                }
-            free(key.str);
+            if(msg.runas_group && *msg.runas_group ){
+                key.str = strdup(SSS_SUDO_ITEM_RGROUP);
+                    value.ptr = msg.runas_group;
+                    if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                        fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                        return err_h;
+                    }
+                free(key.str);
+            }
 
-            key.str = strdup(SSS_SUDO_ITEM_PROMPT);
-                value.ptr = msg.prompt;
-                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
-                    return err_h;
-                }
-            free(key.str);
+            if(msg.prompt && *msg.prompt ){
+                key.str = strdup(SSS_SUDO_ITEM_PROMPT);
+                    value.ptr = msg.prompt;
+                    if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                        fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                        return err_h;
+                    }
+                free(key.str);
+            }
 
-            key.str = strdup(SSS_SUDO_ITEM_NETADDR);
-                value.ptr = msg.network_addrs;
-                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
-                    return err_h;
-                }
-            free(key.str);
-
-            value.type = HASH_VALUE_INT;
+            if(msg.network_addrs && *msg.network_addrs ){
+                key.str = strdup(SSS_SUDO_ITEM_NETADDR);
+                    value.ptr = msg.network_addrs;
+                    if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                        fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                        return err_h;
+                    }
+                    free(key.str);
+            }
 
             key.str = strdup(SSS_SUDO_ITEM_USE_SUDOEDIT);
-                value.i = msg.use_sudoedit;
+                value.ptr = GET_BOOL_STRING(msg.use_sudoedit);
                 if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
                     fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
                     return err_h;
@@ -719,7 +731,7 @@ int create_settings_hash_table(hash_table_t ** table_out) {
             free(key.str);
 
             key.str = strdup(SSS_SUDO_ITEM_USE_SETHOME);
-                value.i = msg.use_set_home;
+                value.ptr = GET_BOOL_STRING(msg.use_set_home);
                 if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
                     fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
                     return err_h;
@@ -727,7 +739,7 @@ int create_settings_hash_table(hash_table_t ** table_out) {
             free(key.str);
 	    
             key.str = strdup(SSS_SUDO_ITEM_USE_PRESERV_ENV);
-                value.i = msg.use_preserve_environment;
+                value.ptr = GET_BOOL_STRING(msg.use_preserve_environment);
                 if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
                     fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
                     return err_h;
@@ -735,7 +747,7 @@ int create_settings_hash_table(hash_table_t ** table_out) {
             free(key.str);
 
             key.str = strdup(SSS_SUDO_ITEM_USE_IMPLIED_SHELL);
-                value.i = msg.use_implied_shell;
+                value.ptr  = GET_BOOL_STRING(msg.use_implied_shell);
                 if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
                     fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
                     return err_h;
@@ -744,7 +756,7 @@ int create_settings_hash_table(hash_table_t ** table_out) {
 	    
 	    
             key.str = strdup(SSS_SUDO_ITEM_USE_LOGIN_SHELL);
-                value.i = msg.use_login_shell;
+                value.ptr = GET_BOOL_STRING(msg.use_login_shell);
                 if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
                     fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
                     return err_h;
@@ -752,56 +764,56 @@ int create_settings_hash_table(hash_table_t ** table_out) {
             free(key.str);
 	    
 	    
-	    key.str = strdup(SSS_SUDO_ITEM_USE_RUN_SHELL);
-            value.i = msg.use_run_shell;
-            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
-                return err_h;
-            }
-        free(key.str);
+            key.str = strdup(SSS_SUDO_ITEM_USE_RUN_SHELL);
+                value.ptr = GET_BOOL_STRING(msg.use_run_shell);
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
 	    
 	    
-	    key.str = strdup(SSS_SUDO_ITEM_USE_PRE_GROUPS);
-            value.i = msg.use_preserve_groups;
-            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
-                return err_h;
-            }
-        free(key.str);
+            key.str = strdup(SSS_SUDO_ITEM_USE_PRE_GROUPS);
+                value.i = GET_BOOL_STRING(msg.use_preserve_groups);
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
 	    
 	    
-	    key.str = strdup(SSS_SUDO_ITEM_USE_IGNORE_TICKET);
-            value.i = msg.use_ignore_ticket;
-            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
-                return err_h;
-            }
-       free(key.str);
+            key.str = strdup(SSS_SUDO_ITEM_USE_IGNORE_TICKET);
+                value.ptr = GET_BOOL_STRING(msg.use_ignore_ticket);
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
 	    
 	    
-	    key.str = strdup(SSS_SUDO_ITEM_USE_NON_INTERACTIVE);
-            value.i = msg.use_noninteractive;
-            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
-                return err_h;
-            }
-      free(key.str);
+            key.str = strdup(SSS_SUDO_ITEM_USE_NON_INTERACTIVE);
+                value.ptr =GET_BOOL_STRING(msg.use_noninteractive);
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
 	    
-	    key.str = strdup(SSS_SUDO_ITEM_DEBUG_LEVEL);
-            value.i = msg.debug_level;
-            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
-                return err_h;
-            }
-       free(key.str);
+            key.str = strdup(SSS_SUDO_ITEM_DEBUG_LEVEL);
+                value.ptr = GET_BOOL_STRING(msg.debug_level);
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
 	    
-	    key.str = strdup(SSS_SUDO_ITEM_CLI_PID);
-            value.i = msg.cli_pid;
-            if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
-                return err_h;
-            }
-       free(key.str);
+            key.str = strdup(SSS_SUDO_ITEM_CLI_PID);
+                 asprintf(&value.ptr,"%u",msg.cli_pid);
+                if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
+                    fprintf(stderr, "cannot add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
+                    return err_h;
+                }
+            free(key.str);
 	    
 
     *table_out = local_table;
@@ -841,15 +853,11 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                           int *errnop)
 {
 
-   const char * truth = "TRUE";
-   const char * fallacy = "FALSE";
+
    char ** command_array;
-   int count;
-   char *tmp;
    int err_status;
-   
-#define GET_BOOL_STRING(x) ((x)? &truth : &fallacy)
-   
+   int status;
+
    DBusConnection* conn;
    DBusError err;
    
@@ -857,15 +865,11 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    DBusMessage* dbus_reply;
    DBusMessageIter msg_iter;
    DBusMessageIter sub_iter;
-   DBusMessageIter dict_iter;
-   
-   dbus_uint32_t status=0;
+
    dbus_bool_t ret=FALSE;
    
-
-   hash_table_t **settings_table;
-   hash_table_t **env_table;
-
+   hash_table_t *env_table;
+   hash_table_t *settings_table;
 
    fprintf(stdout,"Calling remote method to pack message\n");
    
@@ -873,18 +877,20 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
        return SSS_SUDO_VALIDATION_ERR;
    }
 
-   err_status = create_env_hash_table(msg.user_env,env_table);
+
+   err_status = create_env_hash_table(msg.user_env,&env_table);
        if(err_status != HASH_SUCCESS) {
           fprintf(stderr, "ccouldn't create table: %s\n", hash_error_string(err_status));
           return SSS_SUDO_MESSAGE_ERR;
        }
 
 
-   err_status = create_settings_hash_table(msg.user_env,env_table);
+   err_status = create_settings_hash_table(&settings_table);
        if(err_status != HASH_SUCCESS) {
           fprintf(stderr, "ccouldn't create table: %s\n", hash_error_string(err_status));
           return SSS_SUDO_MESSAGE_ERR;
        }
+
    /* initialise the errors */
    dbus_error_init(&err);
 
@@ -902,7 +908,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
 
 
    /* create a new method call and check for errors */
-   dbus_msg = dbus_message_new_method_call( NULL, 		/*    target    */
+   dbus_msg = dbus_message_new_method_call( NULL, 		        /*    target    */
                                       SUDO_SERVER_PATH,        /*    object    */
                                       SUDO_SERVER_INTERFACE,  /*   interface  */
                                       SUDO_METHOD_QUERY);    /*  method name */              
@@ -944,8 +950,8 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    
 
      if (!dbus_message_iter_append_basic(&sub_iter,
-                                               DBUS_TYPE_STRING,
-                                               &msg.tty)) {
+                                         DBUS_TYPE_STRING,
+                                         &msg.tty)) {
          fprintf(stderr, "Out Of Memory!\n");
          return SSS_SUDO_MESSAGE_ERR;
      }
@@ -955,14 +961,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
       return SSS_SUDO_MESSAGE_ERR;
    }
    
-   command_array = (char **) malloc(msg.command_count* sizeof (char*));
-   
-   for(count = 0;count<msg.command_count;count++) {
-     command_array[count] = msg.command[count];
-   }
-   
-   
-      
+
    if(!dbus_message_iter_open_container(&msg_iter,
                                         DBUS_TYPE_ARRAY,
                                         "s",
@@ -971,511 +970,38 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
        return SSS_SUDO_MESSAGE_ERR;
    }
    
-        for(count =0 ; count < msg.command_count ; count++) {
+   for(command_array = msg.command ; *command_array != NULL ; command_array++) {
      
                    if (!dbus_message_iter_append_basic(&sub_iter,
                                                        DBUS_TYPE_STRING,
-                                                       &command_array[count])) {
+                                                       command_array)) {
                            fprintf(stderr, "Out Of Memory!\n");
                            return SSS_SUDO_MESSAGE_ERR;
                    }
      
-        }
+    }
    
     if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
         fprintf(stderr, "Out Of Memory!\n");
         return SSS_SUDO_MESSAGE_ERR;
     }
    ////////
+
+    if(dbus_dhash_to_msg_iter(&settings_table,&msg_iter) != SSS_SBUS_CONV_SUCCESS){
+        fprintf(stderr,"fatal: message framing failed.");
+        return SSS_SUDO_MESSAGE_ERR;
+    }
    
-   if(!dbus_message_iter_open_container(&msg_iter,
-                                        DBUS_TYPE_ARRAY,
-                                        "{ss}",
-                                        &sub_iter)) {
-       fprintf(stderr, "Out Of Memory!\n");
-       return SSS_SUDO_MESSAGE_ERR;
-   }
-   
-        if(msg.runas_user && *msg.runas_user ){
-            tmp = strdup("runasuser");
-   
-            if(!dbus_message_iter_open_container(&sub_iter,
-                                                 DBUS_TYPE_DICT_ENTRY,
-                                                 NULL,
-                                                 &dict_iter)) {
-                    fprintf(stderr, "Out Of Memory!\n");
-                    return SSS_SUDO_MESSAGE_ERR;
-            }
-    
-                if (!dbus_message_iter_append_basic(&dict_iter,
-                                                    DBUS_TYPE_STRING,
-                                                    &tmp)) {
-                    fprintf(stderr, "Out Of Memory!\n");
-                    return SSS_SUDO_MESSAGE_ERR;
-                }
-                if (!dbus_message_iter_append_basic(&dict_iter,
-                                                    DBUS_TYPE_STRING,
-                                                    &msg.runas_user)) {
-                    fprintf(stderr, "Out Of Memory!\n");
-                    return SSS_SUDO_MESSAGE_ERR;
-                }
-                free(tmp);
-   
-           if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-           }
-   
-        }
-    
-    
-        if(msg.runas_group && *msg.runas_group){
-            tmp = strdup("runasgroup");
-            if(!dbus_message_iter_open_container(&sub_iter,
-                                                 DBUS_TYPE_DICT_ENTRY,
-                                                 NULL,
-                                                 &dict_iter)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-                if (!dbus_message_iter_append_basic(&dict_iter,
-                                                    DBUS_TYPE_STRING,
-                                                    &tmp)) {
-                    fprintf(stderr, "Out Of Memory!\n");
-                    return SSS_SUDO_MESSAGE_ERR;
-                }
-                if (!dbus_message_iter_append_basic(&dict_iter,
-                                                    DBUS_TYPE_STRING,
-                                                    &msg.runas_group)) {
-                    fprintf(stderr, "Out Of Memory!\n");
-                    return SSS_SUDO_MESSAGE_ERR;
-                }
-                free(tmp);
-   
-            if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-   
-        }
-    
-    
-        if(msg.prompt && *msg.prompt){
-            if(!dbus_message_iter_open_container(&sub_iter,
-                                                 DBUS_TYPE_DICT_ENTRY,
-                                                 NULL,
-                                                 &dict_iter)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            tmp = strdup("prompt");
-  
-                if (!dbus_message_iter_append_basic(&dict_iter,
-                                                    DBUS_TYPE_STRING,
-                                                    &tmp)) {
-                    fprintf(stderr, "Out Of Memory!\n");
-                    return SSS_SUDO_MESSAGE_ERR;
-                }
-                if (!dbus_message_iter_append_basic(&dict_iter,
-                                                    DBUS_TYPE_STRING,
-                                                    &msg.prompt)) {
-                    fprintf(stderr, "Out Of Memory!\n");
-                    return SSS_SUDO_MESSAGE_ERR;
-                }
-                free(tmp);
-   
-           if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-               fprintf(stderr, "Out Of Memory!\n");
-               return SSS_SUDO_MESSAGE_ERR;
-           }
-  
-        }
-    
-    
-    
-        if(msg.network_addrs && *msg.network_addrs){
-            if(!dbus_message_iter_open_container(&sub_iter,
-                                                 DBUS_TYPE_DICT_ENTRY,
-                                                 NULL,
-                                                 &dict_iter)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            tmp = strdup("networkaddress");
-     
-                if (!dbus_message_iter_append_basic(&dict_iter,
-                                                    DBUS_TYPE_STRING,
-                                                    &tmp)) {
-                    fprintf(stderr, "Out Of Memory!\n");
-                    return SSS_SUDO_MESSAGE_ERR;
-                }
-                if (!dbus_message_iter_append_basic(&dict_iter,
-                                                    DBUS_TYPE_STRING,
-                                                    &msg.network_addrs)) {
-                    fprintf(stderr, "Out Of Memory!\n");
-                    return SSS_SUDO_MESSAGE_ERR;
-                }
-                free(tmp);
-   
-           if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-           }
-   
-        }
-    
-    
-    
-   
-        tmp = strdup("use_sudoedit");
-        if(!dbus_message_iter_open_container(&sub_iter,
-                                             DBUS_TYPE_DICT_ENTRY,
-                                             NULL,
-                                             &dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
+    if(dbus_dhash_to_msg_iter(&env_table,&msg_iter) != SSS_SBUS_CONV_SUCCESS){
+            fprintf(stderr,"fatal: message framing failed.");
             return SSS_SUDO_MESSAGE_ERR;
-        }
-    
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                &tmp)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                GET_BOOL_STRING(msg.use_sudoedit))) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            free(tmp);
-   
-        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
+    }
 
-
-        if(!dbus_message_iter_open_container(&sub_iter,
-                                             DBUS_TYPE_DICT_ENTRY,
-                                             NULL,
-                                             &dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-        tmp = strdup("use_set_home");
-     
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                &tmp)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                GET_BOOL_STRING(msg.use_set_home))) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            free(tmp);
-   
-        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-   
-
-   
-        if(!dbus_message_iter_open_container(&sub_iter,
-                                             DBUS_TYPE_DICT_ENTRY,
-                                             NULL,
-                                             &dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-        tmp = strdup("use_preserve_environment");
-     
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                &tmp)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                GET_BOOL_STRING(msg.use_preserve_environment))) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            free(tmp);
-   
-        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-
-
-        if(!dbus_message_iter_open_container(&sub_iter,
-                                             DBUS_TYPE_DICT_ENTRY,
-                                             NULL,
-                                             &dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-        tmp = strdup("use_implied_shell");
-    
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                &tmp)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                GET_BOOL_STRING(msg.use_implied_shell))) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            free(tmp);
-   
-       if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-           fprintf(stderr, "Out Of Memory!\n");
-           return SSS_SUDO_MESSAGE_ERR;
-       }
-
-
-       if(!dbus_message_iter_open_container(&sub_iter,
-                                            DBUS_TYPE_DICT_ENTRY,
-                                            NULL,
-                                            &dict_iter)) {
-           fprintf(stderr, "Out Of Memory!\n");
-           return SSS_SUDO_MESSAGE_ERR;
-       }
-       tmp = strdup("use_login_shell");
-     
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                &tmp)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                GET_BOOL_STRING(msg.use_login_shell))) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            free(tmp);
-   
-       if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-           fprintf(stderr, "Out Of Memory!\n");
-           return SSS_SUDO_MESSAGE_ERR;
-       }
-
-
-       if(!dbus_message_iter_open_container(&sub_iter,
-                                            DBUS_TYPE_DICT_ENTRY,
-                                            NULL,
-                                            &dict_iter)) {
-           fprintf(stderr, "Out Of Memory!\n");
-           return SSS_SUDO_MESSAGE_ERR;
-       }
-       tmp = strdup("use_run_shell");
-     
-           if (!dbus_message_iter_append_basic(&dict_iter,
-                                               DBUS_TYPE_STRING,
-                                               &tmp)) {
-               fprintf(stderr, "Out Of Memory!\n");
-               return SSS_SUDO_MESSAGE_ERR;
-           }
-           if (!dbus_message_iter_append_basic(&dict_iter,
-                                               DBUS_TYPE_STRING,
-                                               GET_BOOL_STRING(msg.use_run_shell))) {
-               fprintf(stderr, "Out Of Memory!\n");
-               return SSS_SUDO_MESSAGE_ERR;
-           }
-           free(tmp);
-
-      if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-           fprintf(stderr, "Out Of Memory!\n");
-           return SSS_SUDO_MESSAGE_ERR;
-      }
-
-
-
-        if(!dbus_message_iter_open_container(&sub_iter,
-                                             DBUS_TYPE_DICT_ENTRY,
-                                             NULL,
-                                             &dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-        tmp = strdup("use_preserve_groups");
-     
-              if (!dbus_message_iter_append_basic(&dict_iter,
-                                                  DBUS_TYPE_STRING,
-                                                  &tmp)) {
-                  fprintf(stderr, "Out Of Memory!\n");
-                  return SSS_SUDO_MESSAGE_ERR;
-              }
-             if (!dbus_message_iter_append_basic(&dict_iter,
-                                                 DBUS_TYPE_STRING,
-                                                 GET_BOOL_STRING(msg.use_preserve_groups))) {
-                 fprintf(stderr, "Out Of Memory!\n");
-                 return SSS_SUDO_MESSAGE_ERR;
-             }
-             free(tmp);
-   
-        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-
-
-
-        if(!dbus_message_iter_open_container(&sub_iter,
-                                             DBUS_TYPE_DICT_ENTRY,
-                                             NULL,
-                                             &dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-        tmp = strdup("use_ignore_ticket");
-     
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                &tmp)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                GET_BOOL_STRING(msg.use_ignore_ticket))) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            free(tmp);
-   
-        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-
-        if(!dbus_message_iter_open_container(&sub_iter,
-                                             DBUS_TYPE_DICT_ENTRY,
-                                             NULL,
-                                             &dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-        tmp = strdup("use_noninteractive");
-     
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                &tmp)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                GET_BOOL_STRING(msg.use_noninteractive))) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            free(tmp);
-   
-        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-
-
-        if(!dbus_message_iter_open_container(&sub_iter,
-                                             DBUS_TYPE_DICT_ENTRY,
-                                             NULL,
-                                             &dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-        tmp = strdup("use_debug_level");
-     
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                &tmp)) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            if (!dbus_message_iter_append_basic(&dict_iter,
-                                                DBUS_TYPE_STRING,
-                                                GET_BOOL_STRING(msg.debug_level))) {
-                fprintf(stderr, "Out Of Memory!\n");
-                return SSS_SUDO_MESSAGE_ERR;
-            }
-            free(tmp);
-   
-        if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-   
-   if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
-       fprintf(stderr, "Out Of Memory!\n");
-       return SSS_SUDO_MESSAGE_ERR;
-   }
-
-
-  /////
-  
-  
-  
-   if(!dbus_message_iter_open_container(&msg_iter,
-                                        DBUS_TYPE_ARRAY,
-                                        "{ss}",
-                                        &sub_iter)) {
-       fprintf(stderr, "Out Of Memory!\n");
-       return SSS_SUDO_MESSAGE_ERR;
-   }
-   
-     // DO the dhash to Iter for env
-
-
-     /* for(ui = msg.user_env; *ui!=NULL;ui++) {
-          tmp = strchr(*ui,'=');
-          *tmp = '\0';
-          if(!dbus_message_iter_open_container(&sub_iter,
-                                               DBUS_TYPE_DICT_ENTRY,
-                                               NULL,
-                                               &dict_iter)) {
-              fprintf(stderr, "Out Of Memory!\n");
-              return SSS_SUDO_MESSAGE_ERR;
-          }
-     
-              if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, ui)) {
-                  fprintf(stderr, "Out Of Memory!\n");
-                  return SSS_SUDO_MESSAGE_ERR;
-              }
-              if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &tmp+1)) {
-                  fprintf(stderr, "Out Of Memory!\n");
-                  return SSS_SUDO_MESSAGE_ERR;
-              }
-              *tmp = '=' ;
-
-         if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-             fprintf(stderr, "Out Of Memory!\n");
-             return SSS_SUDO_MESSAGE_ERR;
-         }
-   
-      }*/
-
-   if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
-       fprintf(stderr, "Out Of Memory!\n");
-       return SSS_SUDO_MESSAGE_ERR;
-   }
-
+    hash_destroy(settings_table);
    
    /* send message and get a handle for a reply */
    dbus_reply = dbus_connection_send_with_reply_and_block (conn,dbus_msg,
-                                                           600,
+                                                           -1,
                                                            &err);
    fprintf(stdout,"Request Sent\n");
    if (dbus_error_is_set(&err)) { 
@@ -1495,7 +1021,9 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
                                DBUS_TYPE_INVALID);
     if (!ret) {
         fprintf (stderr,"Failed to parse reply, killing connection\n");
-        if (dbus_error_is_set(&err)) dbus_error_free(&err);
+        if (dbus_error_is_set(&err))
+            dbus_error_free(&err);
+
         dbus_connection_close(conn);
         return SSS_SUDO_REPLY_ERR;
     }
@@ -1508,7 +1036,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    dbus_message_unref(dbus_reply);
    dbus_connection_close(conn);
 
-   free(command_array);
+
 
 return SSS_STATUS_SUCCESS;
 

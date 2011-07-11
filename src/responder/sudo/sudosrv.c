@@ -31,10 +31,13 @@
 #include <errno.h>
 
 #include <popt.h>
+#include "dhash.h"
 #include "util/util.h"
 #include "sbus/sbus_client.h"
+#include "sbus/sssd_dbus_messages_helpers.h"
 
 #include "sudosrv.h"
+#include "sss_client/sudo_plugin/sss_sudo_cli.h"
 
 
 
@@ -48,6 +51,13 @@ static int sudo_client_destructor(void *ctx)
     return 0;
 }
 
+struct test {
+  uid_t userid;
+  char * cwd;
+  char * tty;
+};
+struct sss_sudo_msg_contents * msg;
+
 
 static int sudo_query_validation(DBusMessage *message, struct sbus_connection *conn)
 {
@@ -56,63 +66,151 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
     struct sudo_client *sudocli;
     DBusMessage *reply;
     DBusError dbus_error;
-    char *str;
+    DBusMessageIter msg_iter;
+    DBusMessageIter subItem;
+    char *tmp;
     dbus_bool_t dbret;
     void *data;
+    hash_table_t *settings_table;
+    hash_table_t *env_table;
 
     data = sbus_conn_get_private_data(conn);
     sudocli = talloc_get_type(data, struct sudo_client);
     if (!sudocli) {
         DEBUG(0, ("Connection holds no valid init data\n"));
-        return EINVAL;
+        return SSS_SUDO_RESPONDER_CONNECTION_ERR;
     }
 
+    msg = talloc((TALLOC_CTX *)sudocli,struct sss_sudo_msg_contents);
+    
     /* First thing, cancel the timeout */
     DEBUG(4, ("Cancel SUDO client timeout [%p]\n", sudocli->timeout));
     talloc_zfree(sudocli->timeout);
 
     dbus_error_init(&dbus_error);
+    
+    if (!dbus_message_iter_init(message, &msg_iter)) {
+      fprintf(stderr, "Message received as empty!\n");
+      return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+   }
 
-    dbret = dbus_message_get_args(message, &dbus_error,
-                                  DBUS_TYPE_STRING, &str,
-                                  DBUS_TYPE_INVALID);
-    if (!dbret) {
+        if(DBUS_TYPE_STRUCT != dbus_message_iter_get_arg_type(&msg_iter)) {
+            fprintf(stderr, "Argument is not struct!\n");
+            return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+        }
+        else{
+            dbus_message_iter_recurse(&msg_iter,&subItem);
+        }
+
+            if(DBUS_TYPE_UINT32 != dbus_message_iter_get_arg_type(&subItem)) {
+                fprintf(stderr,"UID failed");
+                return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+            }
+            else {
+                dbus_message_iter_get_basic(&subItem, &msg->userid);
+                dbus_message_iter_next (&subItem);
+            }
+
+            if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
+                fprintf(stderr,"CWD failed");
+                return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+            }
+            else {
+                dbus_message_iter_get_basic(&subItem, &msg->cwd);
+                dbus_message_iter_next (&subItem);
+            }
+     
+            if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
+                fprintf(stderr,"TTY failed");
+                return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+            }
+            else {
+                dbus_message_iter_get_basic(&subItem, &msg->tty);
+            }
+
+            fprintf(stderr," The message is:  UID: %d\nCWD: %s\nTTY: %s\n",msg->userid,msg->cwd,msg->tty);
+
+        dbus_message_iter_next (&msg_iter);
+
+        if( DBUS_TYPE_ARRAY != dbus_message_iter_get_arg_type(&msg_iter)) {
+            fprintf(stderr, "Command array failed!\n");
+            return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+        }
+        else{
+            dbus_message_iter_recurse(&msg_iter,&subItem);
+        }
+   
+        while(1)
+        {
+            if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
+                printf("string array content failed");
+                return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+
+            }
+            else {
+                dbus_message_iter_get_basic(&subItem, &tmp);
+                fprintf(stderr," ARRAY: %s \n",tmp);
+                    if(!dbus_message_iter_next (&subItem)) {
+                        /*"Array ended. */
+                        break;
+                    }
+	
+            }
+          
+        }
+    
+        dbus_message_iter_next(&msg_iter);
+    
+        if( dbus_msg_iter_to_dhash(&msg_iter, &settings_table)!= SSS_SBUS_CONV_SUCCESS){
+            fprintf(stderr, "settings table corrupted!\n");
+            return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+        }
+
+        dbus_message_iter_next(&msg_iter);
+
+        if( dbus_msg_iter_to_dhash(&msg_iter, &env_table)!= SSS_SBUS_CONV_SUCCESS){
+            fprintf(stderr, "environment table corrupted!\n");
+            return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+
+        }
+    
+    
+    /*if (!dbret) {
         DEBUG(1, ("Failed to parse message, killing connection\n"));
         if (dbus_error_is_set(&dbus_error)) dbus_error_free(&dbus_error);
         sbus_disconnect(conn);
-        return EIO;
-    }
 
-   fprintf(stderr," The string message is : %s\n ",str);
-    talloc_set_destructor((TALLOC_CTX *)sudocli, sudo_client_destructor);
+    }*/
 
-    DEBUG(4, ("Got string [%s]\n", str));
-
-    /* reply that all is ok */
-    reply = dbus_message_new_method_return(message);
-    if (!reply) {
-        DEBUG(0, ("Dbus Out of memory!\n"));
-        return ENOMEM;
-    }
-
-    dbret = dbus_message_append_args(reply,
-                                     DBUS_TYPE_UINT16, &version,
-                                     DBUS_TYPE_INVALID);
-    if (!dbret) {
-        DEBUG(0, ("Failed to build sudo dbus reply\n"));
-        dbus_message_unref(reply);
-        sbus_disconnect(conn);
-        return EIO;
-    }
-
-    /* send reply back */
-    sbus_conn_send_reply(conn, reply);
-    dbus_message_unref(reply);
-
-    sudocli->initialized = true;
-    return EOK;
 
   
+        talloc_set_destructor((TALLOC_CTX *)sudocli, sudo_client_destructor);
+
+        DEBUG(4, ("Got string [%s]\n", msg->cwd));
+
+            /* reply that all is ok */
+        reply = dbus_message_new_method_return(message);
+        if (!reply) {
+            DEBUG(0, ("Dbus Out of memory!\n"));
+            return ENOMEM;
+        }
+
+        dbret = dbus_message_append_args(reply,
+                                         DBUS_TYPE_UINT16, &version,
+                                         DBUS_TYPE_INVALID);
+        if (!dbret) {
+            DEBUG(0, ("Failed to build sudo dbus reply\n"));
+            dbus_message_unref(reply);
+            sbus_disconnect(conn);
+            return EIO;
+        }
+
+            /* send reply back */
+        sbus_conn_send_reply(conn, reply);
+        dbus_message_unref(reply);
+
+        sudocli->initialized = true;
+        return EOK;
 }
 
 static void init_timeout(struct tevent_context *ev,

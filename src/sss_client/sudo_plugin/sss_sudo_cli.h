@@ -114,7 +114,7 @@ struct sss_sudo_msg_contents
   int debug_level; 
 
   /*from user_env*/
-  char * * user_env;
+  char * const * user_env;
  
   /* command with arguments */
   char ** command;
@@ -140,7 +140,6 @@ struct sss_sudo_msg_contents
 #define  SSS_SUDO_ITEM_DEBUG_LEVEL          "use_debug_level"
 #define  SSS_SUDO_ITEM_CLI_PID              "client_pid"
 
-void print_sudo_items(void);
 
 
 #endif  /* _SSS_SUDO_CLI_H_ */

@@ -353,6 +353,7 @@ libsss_util_la_SOURCES = \
     src/sbus/sssd_dbus_common.c \
     src/sbus/sssd_dbus_connection.c \
     src/sbus/sssd_dbus_server.c \
+    src/sbus/sssd_dbus_messages_helpers.c \
     src/util/util.c \
     src/util/memory.c \
     src/util/server.c \
@@ -406,9 +407,11 @@ sssd_sudo_SOURCES = \
 sssd_sudo_LDADD = \
     $(TDB_LIBS) \
     $(SSSD_LIBS) \
-    libsss_util.la
+    libsss_util.la \
+    $(DBUS_LIBS) \
+    $(DHASH_LIBS)
 sssd_sudo_LDFLAGS = \
-	-g
+    -g
 
 sssd_be_SOURCES = \
     src/providers/data_provider_be.c \
@@ -781,15 +784,15 @@ libsss_sudoplugin_la_LDFLAGS = \
     -module \
     -lpam \
     -lpam_misc \
+    -g \
     $(DBUS_LIBS) \
-    $(DHASH_LIBS)
-    
+    $(DHASH_LIBS) \
+    libsss_util.la
+
 libsss_sudoplugin_la_CPPFLAGS = \
      $(AM_CPPFLAGS) \
      -D_GNU_SOURCE \
-     -g
-     
-    
+     -ldbus-1
     
 ####################
 # Plugin Libraries #
