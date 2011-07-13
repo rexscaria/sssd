@@ -50,7 +50,7 @@ int dbus_dhash_to_msg_iter(hash_table_t **table_in,
            fprintf(stderr, "Out Of Memory!\n");
            return SSS_SBUS_ITER_MESSAGE_ERR;
        }
-    printf("Iterate using iterator\n");
+
        iter = new_hash_iter_context(local_table);
        while ((entry = iter->next(iter)) != NULL) {
 
@@ -122,12 +122,11 @@ int dbus_msg_iter_to_dhash(DBusMessageIter *iter, hash_table_t **table_out)
         }
 
         if(DBUS_TYPE_ARRAY != dbus_message_iter_get_arg_type(&msg_iter)) {
-            fprintf(stderr,"dictionary is invalid");
+            fprintf(stderr,"message Iter is invalid\n");
             return SSS_SBUS_ITER_INVALID_ERR;
 
         }
         else {
-            fprintf(stdout,"Signature of dict : %s \n",dbus_message_iter_get_signature(&msg_iter));
                 dbus_message_iter_recurse(&msg_iter, &sub_iter);
             }
 
@@ -149,7 +148,7 @@ int dbus_msg_iter_to_dhash(DBusMessageIter *iter, hash_table_t **table_out)
                         value.type = HASH_VALUE_PTR;
                         dbus_message_iter_get_basic(&dict_iter, &tmp);
                         key.str = tmp;
-                        fprintf(stderr," %s ",key.str);
+                        fprintf(stdout,"%s : ",key.str);
                         dbus_message_iter_next (&dict_iter);
                         if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&dict_iter)) {
                             printf("string array content failed");
@@ -157,14 +156,14 @@ int dbus_msg_iter_to_dhash(DBusMessageIter *iter, hash_table_t **table_out)
                         }
                         dbus_message_iter_get_basic(&dict_iter, &tmp);
                         value.ptr = tmp;
-                        fprintf(stderr,": %s \n",(char *)value.ptr);
+                        fprintf(stdout,"%s\n",(char *)value.ptr);
 
                         if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
                             fprintf(stderr, "couldn't add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h));
                             return err_h;
                         }
                         if(!dbus_message_iter_next (&sub_iter)) {
-                                 fprintf(stderr,"struct ended.");
+                                 /* struct ended. */
                                  break;
                              }
                     }

@@ -62,9 +62,11 @@ struct sss_cli_req_data {
 };
 
 enum sss_status {
+    SSS_STATUS_SUCCESS,
+    SSS_STATUS_FAILED,
     SSS_STATUS_TRYAGAIN,
-    SSS_STATUS_UNAVAIL,
-    SSS_STATUS_SUCCESS
+    SSS_STATUS_UNAVAIL
+
 };
 
 #endif 

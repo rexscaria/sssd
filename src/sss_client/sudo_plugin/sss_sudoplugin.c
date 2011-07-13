@@ -854,9 +854,10 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
 {
 
 
-   char ** command_array;
-   int err_status;
-   int status;
+   char ** command_array,**ui;
+   char * result_str;
+   int err_status,count;
+   dbus_uint32_t status,command_array_out_size;
 
    DBusConnection* conn;
    DBusError err;
@@ -870,6 +871,7 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    
    hash_table_t *env_table;
    hash_table_t *settings_table;
+   hash_table_t *env_table_out;
 
    fprintf(stdout,"Calling remote method to pack message\n");
    
@@ -961,6 +963,12 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
       return SSS_SUDO_MESSAGE_ERR;
    }
    
+       if (!dbus_message_iter_append_basic(&msg_iter,
+                                            DBUS_TYPE_UINT32,
+                                            &msg.command_count)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            return SSS_SUDO_MESSAGE_ERR;
+        }
 
    if(!dbus_message_iter_open_container(&msg_iter,
                                         DBUS_TYPE_ARRAY,
@@ -1016,8 +1024,10 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
 
    ret = dbus_message_get_args(dbus_reply,
                                &err,
-                               DBUS_TYPE_UINT16,
-                               &status,
+                               DBUS_TYPE_UINT32,&status,
+                               DBUS_TYPE_STRING,&result_str,
+                               DBUS_TYPE_ARRAY,DBUS_TYPE_STRING,&command_array,
+                               &command_array_out_size,
                                DBUS_TYPE_INVALID);
     if (!ret) {
         fprintf (stderr,"Failed to parse reply, killing connection\n");
@@ -1028,8 +1038,29 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
         return SSS_SUDO_REPLY_ERR;
     }
     
-   fprintf(stdout,"Got Reply: %d\n", status);
-   
+    fprintf(stdout,"----------Reply--------:\n"
+            "Header : %d \nResult status : %s\n"
+            "Command : ", status,result_str);
+
+   for(count =0;count< command_array_out_size;count++){
+       printf("%s ", command_array[count]);
+   }
+   if (!dbus_message_iter_init(dbus_reply, &msg_iter)) {
+         fprintf(stderr, "Reply iterator failed!\n");
+         return SSS_SUDO_REPLY_ERR;
+   }
+
+   dbus_message_iter_next(&msg_iter);
+   dbus_message_iter_next(&msg_iter);
+   dbus_message_iter_next(&msg_iter);
+
+   if(dbus_msg_iter_to_dhash(&msg_iter, &env_table_out) != SSS_SBUS_CONV_SUCCESS){
+               fprintf(stderr, "env message iterator corrupted!\n");
+               return SSS_SUDO_REPLY_ERR;
+
+           }
+   printf("---------Reply End----------");
+
    // free reply and close connection
    /* free message */
    dbus_message_unref(dbus_msg);
@@ -1037,8 +1068,10 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
    dbus_connection_close(conn);
 
 
-
-return SSS_STATUS_SUCCESS;
+if(strncmp(result_str,"PASS",4)==0)
+    return SSS_STATUS_SUCCESS;
+else
+    return SSS_STATUS_FAILED;
 
 }
 
@@ -1049,7 +1082,7 @@ void free_all( void )
   free(msg.prompt);
   free(msg.runas_user);
   free(msg.runas_group);
-  free(msg.network_addrs);
+  //free(msg.network_addrs);
   free(user_information.username);
   
 }

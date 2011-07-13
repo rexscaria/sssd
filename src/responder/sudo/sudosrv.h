@@ -41,6 +41,7 @@
 #define SUDO_METHOD_QUERY "queryService"
 #endif
 
+#define SSS_SUDO_RESPONDER_HEADER 0x43256
 
 static int sudo_query_validation(DBusMessage *message, struct sbus_connection *conn);
 struct sbus_method sudo_methods[] = {
