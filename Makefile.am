@@ -192,7 +192,9 @@ AM_CPPFLAGS = \
     -DSSSD_CONF_DIR=\"$(sssdconfdir)\" \
     -DSSS_NSS_SOCKET_NAME=\"$(pipepath)/nss\" \
     -DSSS_PAM_SOCKET_NAME=\"$(pipepath)/pam\" \
+    -DSSS_SUDO_SOCKET_NAME=\"$(pipepath)/sudo\" \
     -DSSS_PAM_PRIV_SOCKET_NAME=\"$(pipepath)/private/pam\" \
+    -DSSS_SUDO_PRIV_SOCKET_NAME=\"$(pipepath)/private/sudo\" \
     -DLOCALEDIR=\"$(localedir)\"
 
 EXTRA_DIST = build/config.rpath
@@ -403,10 +405,11 @@ sssd_pam_LDADD = \
 
 sssd_sudo_SOURCES = \
     src/responder/sudo/sudosrv.c \
-    src/responder/sudo/sudosrv.h
+    $(SSSD_RESPONDER_OBJ)
 sssd_sudo_LDADD = \
     $(TDB_LIBS) \
     $(SSSD_LIBS) \
+    $(LDB_LIBS) \
     libsss_util.la \
     $(DBUS_LIBS) \
     $(DHASH_LIBS)

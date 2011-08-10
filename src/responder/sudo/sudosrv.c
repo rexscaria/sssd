@@ -33,11 +33,19 @@
 #include <popt.h>
 #include "dhash.h"
 #include "util/util.h"
+#include "db/sysdb.h"
 #include "sbus/sbus_client.h"
 #include "sbus/sssd_dbus_messages_helpers.h"
+#include "responder/common/responder.h"
+#include "responder/common/negcache.h"
+#include "responder/common/responder_packet.h"
 
-#include "sudosrv.h"
+#include "responder/sudo/sudosrv.h"
 #include "sss_client/sudo_plugin/sss_sudo_cli.h"
+#include "sbus/sbus_client.h"
+#include "responder/common/responder_packet.h"
+#include "providers/data_provider.h"
+#include "monitor/monitor_interfaces.h"
 
 
 
@@ -56,7 +64,89 @@ struct test {
   char * cwd;
   char * tty;
 };
-struct sss_sudo_msg_contents * msg;
+
+int compare_sudo_order(struct ldb_message **msg1, struct ldb_message **msg2)
+{
+    double order_msg1 = ldb_msg_find_attr_as_double(*msg1, SYSDB_SUDO_ORDER_ATTR, 0.0);
+    double order_msg2 = ldb_msg_find_attr_as_double(*msg2, SYSDB_SUDO_ORDER_ATTR, 0.0);
+        if(order_msg1>order_msg2) return 1;
+        else if (order_msg1==order_msg1) return 0;
+        else return -1;
+}
+
+
+int search_sudo_rules(struct sudo_client *sudocli) {
+    TALLOC_CTX *tmpctx;
+    struct sysdb_ctx_list *sysdblist = sudocli->sudoctx->rctx->db_list;
+    struct sss_domain_info *domain = sudocli->sudoctx->rctx->be_conns->domain;
+    const char *attrs[] = { SYSDB_SUDO_USER_ATTR,
+                            SYSDB_SUDO_HOST_ATTR,
+                            SYSDB_SUDO_OPTION_ATTR,
+                            SYSDB_SUDO_COMMAND_ATTR,
+                            SYSDB_SUDO_RUNAS_USER_ATTR,
+                            SYSDB_SUDO_RUNAS_GROUP_ATTR,
+                            SYSDB_SUDO_NOT_BEFORE_ATTR,
+                            SYSDB_SUDO_NOT_AFTER_ATTR,
+                            SYSDB_SUDO_ORDER_ATTR,
+                            NULL };
+    char *filter = NULL;
+    struct ldb_message **msgs;
+    int ret;
+    size_t count;
+    int i;
+    double order;
+
+    fprintf(stdout,"in Sudo rule\n");
+    tmpctx = talloc_new(sudocli);
+    if (!tmpctx) {
+        return ENOMEM;
+    }
+
+    filter = talloc_asprintf(tmpctx,"");
+    if (!filter) {
+        DEBUG(2, ("Failed to build filter\n"));
+        fprintf(stdout," failed Filter - %s\n",filter);
+        ret = ENOMEM;
+        goto done;
+    }
+    fprintf(stdout,"Filter - %s\n",filter);
+    ret = sysdb_search_sudo_rules(tmpctx,
+                                  *(sysdblist->dbs),
+                                  domain,
+                                  filter,
+                                  attrs,
+                                  &count,
+                                  &msgs);
+
+    fprintf(stdout,"in Sudo rule search %d\n",count);
+    if (ret) {
+        if (ret == ENOENT) {
+            ret = EOK;
+        }
+        goto done;
+    }
+
+    DEBUG(4, ("Found %d sudo rule entries!\n", count));
+
+    if (count == 0) {
+        ret = EOK;
+        goto done;
+    }
+    fprintf(stdin,"-----%d commands ----",count);
+
+    qsort(msgs,count,sizeof(struct ldb_message *),compare_sudo_order);
+
+    for (i = 0; i < count; i++) {
+        order = ldb_msg_find_attr_as_double(msgs[i], SYSDB_SUDO_ORDER_ATTR, 0.0);
+
+        DEBUG(0, ("-----%f ----%s----",order,ldb_dn_get_linearized(msgs[i]->dn)));
+        fprintf(stderr,"-----%f ----",order);
+    }
+
+    done:
+    talloc_zfree(tmpctx);
+    return ret;
+}
 
 
 static int sudo_query_validation(DBusMessage *message, struct sbus_connection *conn)
@@ -68,14 +158,16 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
     DBusError dbus_error;
     DBusMessageIter msg_iter;
     DBusMessageIter subItem;
-    char *tmp,**ui;
+    char **ui;
     char **command_array;
+    int ret = -1;
     dbus_bool_t dbret;
     void *data;
     int count = 0;
     hash_table_t *settings_table;
     hash_table_t *env_table;
     char * result;
+    struct sss_sudo_msg_contents * msg;
 
     result = strdup("PASS");
 
@@ -193,14 +285,14 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
             }
     
         fprintf(stdout,"-----------Message END---------\n");
-    
-    /*if (!dbret) {
-        DEBUG(1, ("Failed to parse message, killing connection\n"));
-        if (dbus_error_is_set(&dbus_error)) dbus_error_free(&dbus_error);
-        sbus_disconnect(conn);
+//////////////////
 
-    }*/
+           ret =  search_sudo_rules(sudocli);
+           if(ret != EOK){
+               fprintf(stderr,"Error in rule");
+           }
 
+/////////////////////
 
   
         talloc_set_destructor((TALLOC_CTX *)sudocli, sudo_client_destructor);
@@ -303,7 +395,7 @@ static int sudo_client_init(struct sbus_connection *conn, void *data)
     /* 5 seconds should be plenty */
     tv = tevent_timeval_current_ofs(5, 0);
 
-    sudocli->timeout = tevent_add_timer(sudoctx->ev, sudocli, tv, init_timeout, sudocli);
+    sudocli->timeout = tevent_add_timer(sudoctx->rctx->ev, sudocli, tv, init_timeout, sudocli);
     if (!sudocli->timeout) {
         DEBUG(0,("Out of memory?!\n"));
         talloc_zfree(conn);
@@ -317,49 +409,165 @@ static int sudo_client_init(struct sbus_connection *conn, void *data)
 
     return EOK;
 }
+static void sudo_dp_reconnect_init(struct sbus_connection *conn, int status, void *pvt)
+{
+    struct be_conn *be_conn = talloc_get_type(pvt, struct be_conn);
+    int ret;
 
+    /* Did we reconnect successfully? */
+    if (status == SBUS_RECONNECT_SUCCESS) {
+        DEBUG(1, ("Reconnected to the Data Provider.\n"));
+
+        /* Identify ourselves to the data provider */
+        ret = dp_common_send_id(be_conn->conn,
+                                DATA_PROVIDER_VERSION,
+                                "PAM");
+        /* all fine */
+        if (ret == EOK) return;
+    }
+
+    /* Handle failure */
+    DEBUG(0, ("Could not reconnect to %s provider.\n",
+              be_conn->domain->name));
+
+
+}
 
 int sudo_server_init(TALLOC_CTX *mem_ctx,
-			struct tevent_context *ev,
-			struct sudo_ctx *_ctx)
+            struct sudo_ctx *_ctx)
 {
-  
+
     int ret;
     struct sbus_connection *serv;
-    
-  
+
+
     DEBUG(1, ("Setting up the sudo server.\n"));
-    
-     
-        
-    ret = sbus_new_server(mem_ctx,ev, SSS_SUDO_SERVICE_PIPE,
-                          &sudo_interface, &serv,
-                          sudo_client_init, _ctx);
+
+
+
+    ret = sbus_new_server(mem_ctx,
+                          _ctx->rctx->ev,
+                          SSS_SUDO_SERVICE_PIPE,
+                          &sudo_monitor_interface,
+                          &serv,
+                          sudo_client_init,
+                          _ctx);
     if (ret != EOK) {
         DEBUG(0, ("Could not set up sudo sbus server.\n"));
         return ret;
     }
 
     return EOK;
-  
+
+}
+
+struct cli_protocol_version *register_cli_protocol_version(void)
+{
+    static struct cli_protocol_version sudo_cli_protocol_version[] = {
+        {0, NULL, NULL}
+    };
+
+    return sudo_cli_protocol_version;
+}
+
+struct sss_cmd_table *get_sudo_cmds(void)
+{
+    static struct sss_cmd_table sss_cmds[] = {
+       {SSS_SUDO_AUTHENTICATE, NULL},
+        {SSS_SUDO_INVALIDATE, NULL},
+        {SSS_SUDO_VALIDATE, NULL},
+        {SSS_SUDO_LIST, NULL},
+        {SSS_CLI_NULL, NULL}
+    };
+
+    return sss_cmds;
 }
 
 int sudo_process_init(TALLOC_CTX *mem_ctx,
                      struct tevent_context *ev,
                      struct confdb_ctx *cdb)
 {
+  struct sss_cmd_table *sudo_cmds;
+  struct be_conn *iter;
   struct sudo_ctx *ctx;
-  int ret;
+  int ret, max_retries;
+  int id_timeout;
+
   
   ctx = talloc_zero(mem_ctx, struct sudo_ctx);
-  ctx->ev = ev;
-  ctx->cdb = cdb;
-  
-  
-  ret = sudo_server_init(mem_ctx, ev, ctx);
-  DEBUG(0, ("sudo server returned %d.\n",ret));
-  
-    return EOK;
+  if (!ctx) {
+          DEBUG(0, ("fatal error initializing sudo_ctx\n"));
+          return ENOMEM;
+  }
+  sudo_cmds = get_sudo_cmds();
+  ret = sss_process_init(ctx,
+                         ev,
+                         cdb,
+                         sudo_cmds,
+                         SSS_SUDO_SOCKET_NAME,
+                         SSS_SUDO_PRIV_SOCKET_NAME,
+                         CONFDB_SUDO_CONF_ENTRY,
+                         SSS_SUDO_SBUS_SERVICE_NAME,
+                         SSS_SUDO_SBUS_SERVICE_VERSION,
+                         &sudo_monitor_interface,
+                         "SUDO", &sudo_dp_interface,
+                         &ctx->rctx);
+      if (ret != EOK) {
+          goto done;
+      }
+
+
+  ctx->rctx->pvt_ctx = ctx;
+
+
+
+  ret = confdb_get_int(ctx->rctx->cdb, ctx->rctx, CONFDB_SUDO_CONF_ENTRY,
+                           CONFDB_SERVICE_RECON_RETRIES, 3, &max_retries);
+      if (ret != EOK) {
+          DEBUG(0, ("Failed to set up automatic reconnection\n"));
+          goto done;
+      }
+
+      for (iter = ctx->rctx->be_conns; iter; iter = iter->next) {
+          sbus_reconnect_init(iter->conn, max_retries,
+                              sudo_dp_reconnect_init, iter);
+      }
+
+      /* Set up the negative cache */
+      ret = confdb_get_int(cdb, ctx, CONFDB_SUDO_CONF_ENTRY,
+                           CONFDB_SUDO_ENTRY_NEG_TIMEOUT, 15,
+                           &ctx->neg_timeout);
+      if (ret != EOK) goto done;
+
+      /* Set up the PAM identity timeout */
+      ret = confdb_get_int(cdb, ctx, CONFDB_SUDO_CONF_ENTRY,
+                           CONFDB_SUDO_ID_TIMEOUT, 5,
+                           &id_timeout);
+      if (ret != EOK) goto done;
+
+      ctx->id_timeout = (size_t)id_timeout;
+
+      ret = sss_ncache_init(ctx, &ctx->ncache);
+      if (ret != EOK) {
+          DEBUG(0, ("fatal error initializing negative cache\n"));
+          goto done;
+      }
+
+      ret = sss_ncache_prepopulate(ctx->ncache, cdb, ctx->rctx->names,
+                                   ctx->rctx->domains);
+      if (ret != EOK) {
+          goto done;
+      }
+
+      ret = sudo_server_init(mem_ctx, ctx);
+        DEBUG(0, ("sudo server returned %d.\n",ret));
+
+        return EOK;
+  done:
+      if (ret != EOK) {
+          talloc_free(ctx);
+      }
+      return ret;
 }
 
 int main(int argc, const char *argv[])

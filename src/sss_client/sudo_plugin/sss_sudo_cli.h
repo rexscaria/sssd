@@ -71,6 +71,8 @@ enum sss_status {
 
 #endif 
 
+
+
 enum error_types_sudo{
 
   SSS_SUDO_SUCCESS = 0x01,

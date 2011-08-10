@@ -30,20 +30,34 @@
 #define CACHE_SYSDB_FILE "cache_%s.ldb"
 #define LOCAL_SYSDB_FILE "sssd.ldb"
 
+#define SUDO_RULE_OBJ_CLASS "sudoRole"
 #define SYSDB_BASE "cn=sysdb"
 #define SYSDB_DOM_BASE "cn=%s,cn=sysdb"
 #define SYSDB_USERS_CONTAINER "cn=users"
 #define SYSDB_GROUPS_CONTAINER "cn=groups"
 #define SYSDB_CUSTOM_CONTAINER "cn=custom"
 #define SYSDB_NETGROUP_CONTAINER "cn=Netgroups"
+#define SYSDB_SUDO_CONTAINER "ou=sudoers"
 #define SYSDB_TMPL_USER_BASE SYSDB_USERS_CONTAINER",cn=%s,"SYSDB_BASE
 #define SYSDB_TMPL_GROUP_BASE SYSDB_GROUPS_CONTAINER",cn=%s,"SYSDB_BASE
 #define SYSDB_TMPL_CUSTOM_BASE SYSDB_CUSTOM_CONTAINER",cn=%s,"SYSDB_BASE
 #define SYSDB_TMPL_NETGROUP_BASE SYSDB_NETGROUP_CONTAINER",cn=%s,"SYSDB_BASE
+#define SYSDB_TMPL_SUDO_BASE SYSDB_SUDO_CONTAINER",cn=%s,"SYSDB_BASE
+#define SYSDB_SUDORULE SYSDB_OBJECTCLASS"="SUDO_RULE_OBJ_CLASS
 
 #define SYSDB_USER_CLASS "user"
 #define SYSDB_GROUP_CLASS "group"
 #define SYSDB_NETGROUP_CLASS "netgroup"
+
+#define SYSDB_SUDO_USER_ATTR "sudoUser"
+#define SYSDB_SUDO_HOST_ATTR "sudoHost"
+#define SYSDB_SUDO_OPTION_ATTR "sudoOption"
+#define SYSDB_SUDO_COMMAND_ATTR "sudoCommand"
+#define SYSDB_SUDO_RUNAS_USER_ATTR "sudoRunAsUser"
+#define SYSDB_SUDO_RUNAS_GROUP_ATTR "sudoRunAsGroup"
+#define SYSDB_SUDO_NOT_BEFORE_ATTR "sudoNotBefore"
+#define SYSDB_SUDO_NOT_AFTER_ATTR "sudoNotAfter"
+#define SYSDB_SUDO_ORDER_ATTR "sudoOrder"
 
 #define SYSDB_NAME "name"
 #define SYSDB_OBJECTCLASS "objectClass"
@@ -396,6 +410,15 @@ int sysdb_search_entry(TALLOC_CTX *mem_ctx,
                        struct ldb_dn *base_dn,
                        int scope,
                        const char *filter,
+                       const char **attrs,
+                       size_t *msgs_count,
+                       struct ldb_message ***msgs);
+
+/* search sudo rules */
+int sysdb_search_sudo_rules(TALLOC_CTX *mem_ctx,
+                       struct sysdb_ctx *sysdb,
+                       struct sss_domain_info *domain,
+                       const char *sub_filter,
                        const char **attrs,
                        size_t *msgs_count,
                        struct ldb_message ***msgs);

@@ -163,7 +163,6 @@ static struct pam_conv conv = {
 
 #define GET_BOOL_STRING(x) ((x)? strdup("TRUE") : strdup("FALSE"))
 
-
 void print_sudo_items(void)
 {
 

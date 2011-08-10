@@ -40,8 +40,19 @@
 #ifndef SUDO_METHOD_QUERY
 #define SUDO_METHOD_QUERY "queryService"
 #endif
+#define SUDO_DP_INTERFACE "org.freedesktop.sssd.sudo.dataprovider"
+#define SUDO_DP_PATH      "/org/freedesktop/sssd/sudo/dataprovider"
+#define SUDO_DP_METHOD_QUERY "queryDPService"
+
 
 #define SSS_SUDO_RESPONDER_HEADER 0x43256
+
+#define SSS_SUDO_SBUS_SERVICE_VERSION 0x0001
+#define SSS_SUDO_SBUS_SERVICE_NAME "sudo"
+
+#define CONFDB_SERVICE_RECON_RETRIES "reconnection_retries"
+#define CONFDB_SUDO_ENTRY_NEG_TIMEOUT "entry_negative_timeout"
+#define CONFDB_SUDO_ID_TIMEOUT "sudo_id_timeout"
 
 static int sudo_query_validation(DBusMessage *message, struct sbus_connection *conn);
 struct sbus_method sudo_methods[] = {
@@ -50,7 +61,7 @@ struct sbus_method sudo_methods[] = {
     { NULL, NULL }
 };
 
-struct sbus_interface sudo_interface = {
+struct sbus_interface sudo_monitor_interface = {
     SUDO_SERVER_INTERFACE,
     SUDO_SERVER_PATH,
     SBUS_DEFAULT_VTABLE,
@@ -58,14 +69,20 @@ struct sbus_interface sudo_interface = {
     NULL
 };
 
-struct sudo_ctx {
-    struct tevent_context *ev;
-    struct confdb_ctx *cdb;
-    
-    struct sbus_connection *mon_conn;
-    struct sbus_connection *sbus_srv;
+struct sbus_interface sudo_dp_interface = {
+    SUDO_DP_INTERFACE,
+    SUDO_DP_PATH,
+    SBUS_DEFAULT_VTABLE,
+    NULL/*sudo_dp_methods*/,
+    NULL
+};
 
-    size_t check_online_ref_count;
+struct sudo_ctx {
+    struct resp_ctx *rctx;
+    struct sss_nc_ctx *ncache;
+
+    int neg_timeout;
+    time_t id_timeout;
 };
 
 struct sudo_client {
@@ -86,7 +103,9 @@ enum error_types_sudo_responder{
   SSS_SUDO_RESPONDER_LOG_ERR,
   SSS_SUDO_RESPONDER_MESSAGE_ERR,
   SSS_SUDO_RESPONDER_REPLY_ERR,
-  SSS_SUDO_RESPONDER_DHASH_ERR
+  SSS_SUDO_RESPONDER_DHASH_ERR,
+  SUDO_LDB_CONNECT_ERR,
+  SUDO_LDB_SEARCH_ERR
 
 };
 #endif
