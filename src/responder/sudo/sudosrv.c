@@ -34,6 +34,7 @@
 #include "dhash.h"
 #include "util/util.h"
 #include "db/sysdb.h"
+#include "db/sysdb_private.h"
 #include "sbus/sbus_client.h"
 #include "sbus/sssd_dbus_messages_helpers.h"
 #include "responder/common/responder.h"
@@ -65,7 +66,7 @@ struct test {
   char * tty;
 };
 
-int compare_sudo_order(struct ldb_message **msg1, struct ldb_message **msg2)
+int compare_sudo_order(const struct ldb_message **msg1, const struct ldb_message **msg2)
 {
     double order_msg1 = ldb_msg_find_attr_as_double(*msg1, SYSDB_SUDO_ORDER_ATTR, 0.0);
     double order_msg2 = ldb_msg_find_attr_as_double(*msg2, SYSDB_SUDO_ORDER_ATTR, 0.0);
@@ -75,10 +76,10 @@ int compare_sudo_order(struct ldb_message **msg1, struct ldb_message **msg2)
 }
 
 
-int search_sudo_rules(struct sudo_client *sudocli) {
+int search_sudo_rules(struct sudo_client *sudocli,
+                      struct sysdb_ctx *sysdb,
+                      struct sss_domain_info * domain) {
     TALLOC_CTX *tmpctx;
-    struct sysdb_ctx_list *sysdblist = sudocli->sudoctx->rctx->db_list;
-    struct sss_domain_info *domain = sudocli->sudoctx->rctx->be_conns->domain;
     const char *attrs[] = { SYSDB_SUDO_USER_ATTR,
                             SYSDB_SUDO_HOST_ATTR,
                             SYSDB_SUDO_OPTION_ATTR,
@@ -91,9 +92,10 @@ int search_sudo_rules(struct sudo_client *sudocli) {
                             NULL };
     char *filter = NULL;
     struct ldb_message **msgs;
+    struct ldb_message_element *el;
     int ret;
     size_t count;
-    int i;
+    int i,j;
     double order;
 
     fprintf(stdout,"in Sudo rule\n");
@@ -104,21 +106,19 @@ int search_sudo_rules(struct sudo_client *sudocli) {
 
     filter = talloc_asprintf(tmpctx,"");
     if (!filter) {
-        DEBUG(2, ("Failed to build filter\n"));
-        fprintf(stdout," failed Filter - %s\n",filter);
+        DEBUG(0, ("Failed to build filter - %s\n",filter));
         ret = ENOMEM;
         goto done;
     }
     fprintf(stdout,"Filter - %s\n",filter);
     ret = sysdb_search_sudo_rules(tmpctx,
-                                  *(sysdblist->dbs),
+                                  sysdb,
                                   domain,
                                   filter,
                                   attrs,
                                   &count,
                                   &msgs);
 
-    fprintf(stdout,"in Sudo rule search %d\n",count);
     if (ret) {
         if (ret == ENOENT) {
             ret = EOK;
@@ -126,23 +126,31 @@ int search_sudo_rules(struct sudo_client *sudocli) {
         goto done;
     }
 
-    DEBUG(4, ("Found %d sudo rule entries!\n", count));
+    DEBUG(0, ("Found %d sudo rule entries!\n\n", count));
 
     if (count == 0) {
         ret = EOK;
         goto done;
     }
-    fprintf(stdin,"-----%d commands ----",count);
 
-    qsort(msgs,count,sizeof(struct ldb_message *),compare_sudo_order);
+    qsort(msgs,count,sizeof(struct ldb_message *), (__compar_fn_t)compare_sudo_order);
 
-    for (i = 0; i < count; i++) {
+    for(i=0; i< count ; i++) {
+
         order = ldb_msg_find_attr_as_double(msgs[i], SYSDB_SUDO_ORDER_ATTR, 0.0);
 
-        DEBUG(0, ("-----%f ----%s----",order,ldb_dn_get_linearized(msgs[i]->dn)));
-        fprintf(stderr,"-----%f ----",order);
-    }
+        DEBUG(0, ("--sudoOrder: %f\n",order));
+        DEBUG(0, ("--dn: %s----\n",ldb_dn_get_linearized(msgs[i]->dn)));
+        el = ldb_msg_find_element(msgs[i], SYSDB_SUDO_COMMAND_ATTR);
+        if (!el) {
+                return LDB_ERR_OPERATIONS_ERROR;
+            }
+            /* see if this is a user */
+            for (j = 0; j < el->num_values; j++) {
+                DEBUG(0, ("sudoCommand: %s\n" ,(const char *) (el->values[j].data)));
 
+            }
+    }
     done:
     talloc_zfree(tmpctx);
     return ret;
@@ -163,11 +171,15 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
     int ret = -1;
     dbus_bool_t dbret;
     void *data;
-    int count = 0;
+    int count = 0, i = 0;
     hash_table_t *settings_table;
     hash_table_t *env_table;
     char * result;
     struct sss_sudo_msg_contents * msg;
+    struct sysdb_ctx **sysdblist;
+    TALLOC_CTX * tmpctx;
+    struct ldb_message *ldb_msg;
+    size_t no_ldbs = 0;
 
     result = strdup("PASS");
 
@@ -284,14 +296,39 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
                 return SSS_SUDO_RESPONDER_MESSAGE_ERR;
             }
     
-        fprintf(stdout,"-----------Message END---------\n");
+            DEBUG(0, ("-----------Message END---------\n"));
 //////////////////
 
-           ret =  search_sudo_rules(sudocli);
-           if(ret != EOK){
-               fprintf(stderr,"Error in rule");
-           }
+        tmpctx = talloc_new(NULL);
+            if (!tmpctx) {
+                return ENOMEM;
+            }
+        i=0;
+        sysdblist = sudocli->sudoctx->rctx->db_list->dbs;
+        no_ldbs = sudocli->sudoctx->rctx->db_list->num_dbs;
+        for(i=0;i < no_ldbs;i++) {
 
+            ret = sysdb_search_user_by_uid(tmpctx,
+                                           sysdblist[i],
+                                           sysdblist[i]->domain,
+                                            msg->userid,
+                                            NULL,
+                                            &ldb_msg);
+            if (ret != EOK) {
+                DEBUG(0, ("No User matched\n"));
+                        if (ret == ENOENT) {
+                            continue;
+                        }
+                 break;
+            }
+
+           ret =  search_sudo_rules(sudocli, sysdblist[i],sysdblist[i]->domain);
+           if(ret != EOK){
+               DEBUG(0, ("Error in rule"));
+           }
+        }
+
+        talloc_zfree(tmpctx);
 /////////////////////
 
   
