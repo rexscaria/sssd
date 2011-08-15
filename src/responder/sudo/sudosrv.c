@@ -282,36 +282,7 @@ int search_sudo_rules(struct sudo_client *sudocli,
         current = tmp;
 
     }
-    ///
-    current = list;
-    while(current!=NULL) {
 
-
-
-        DEBUG(0, ("\n\n\n\n--sudoOrder: %f\n",
-                ldb_msg_find_attr_as_double((struct ldb_message *)current->data,
-                                            SYSDB_SUDO_ORDER_ATTR,
-                                            0.0)));
-        DEBUG(0, ("--dn: %s----\n",
-                ldb_dn_get_linearized(((struct ldb_message *)current->data)->dn)));
-
-        el = ldb_msg_find_element((struct ldb_message *)current->data,
-                                  SYSDB_SUDO_COMMAND_ATTR);
-        if (!el) {
-            DEBUG(0, ("Failed to get sudo commands for sudorule [%s]\n",
-                    ldb_dn_get_linearized(((struct ldb_message *)current->data)->dn)));
-
-
-        }
-        current = current->next;
-    }
-
-    /*el = ldb_msg_find_element((struct ldb_message *)current->data, SYSDB_SUDO_USER_ATTR);
-      if (!el) {
-                  DEBUG(0, ("Failed to get sudo Users for sudorule [%s]\n",
-                          ldb_dn_get_linearized(msgs[i]->dn)));
-                  continue;
-              }*/
 
     talloc_free(listctx);
 
