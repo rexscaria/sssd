@@ -49,6 +49,7 @@
 #define SYSDB_GROUP_CLASS "group"
 #define SYSDB_NETGROUP_CLASS "netgroup"
 
+#define SYSDB_SUDO_CONTAINER_ATTR "cn"
 #define SYSDB_SUDO_USER_ATTR "sudoUser"
 #define SYSDB_SUDO_HOST_ATTR "sudoHost"
 #define SYSDB_SUDO_OPTION_ATTR "sudoOption"
@@ -58,6 +59,8 @@
 #define SYSDB_SUDO_NOT_BEFORE_ATTR "sudoNotBefore"
 #define SYSDB_SUDO_NOT_AFTER_ATTR "sudoNotAfter"
 #define SYSDB_SUDO_ORDER_ATTR "sudoOrder"
+
+#define SYSDB_SUDO_USER_MATCH_ATTR "("SYSDB_SUDO_USER_ATTR"=%s)"
 
 #define SYSDB_NAME "name"
 #define SYSDB_OBJECTCLASS "objectClass"
@@ -134,6 +137,7 @@
 #define SYSDB_GRENT_MPG_FILTER "("SYSDB_MPGC")"
 
 #define SYSDB_INITGR_FILTER "(&("SYSDB_GC")("SYSDB_GIDNUM"=*))"
+#define SYSDB_INITGR_ALL_FILTER "(&("SYSDB_GC")(|(&("SYSDB_NAME"=*)("SYSDB_POSIX"=FALSE))("SYSDB_GIDNUM"=*)))"
 
 #define SYSDB_GETCACHED_FILTER "(&"SYSDB_UC")("SYSDB_LAST_LOGIN">=%lu))"
 
@@ -170,6 +174,10 @@
 
 #define SYSDB_INITGR_ATTR SYSDB_MEMBEROF
 #define SYSDB_INITGR_ATTRS {SYSDB_GIDNUM, SYSDB_POSIX, \
+                            SYSDB_DEFAULT_ATTRS, \
+                            NULL}
+
+#define SYSDB_INITGR_ALL_ATTRS {SYSDB_GIDNUM, SYSDB_NAME, SYSDB_POSIX, \
                             SYSDB_DEFAULT_ATTRS, \
                             NULL}
 
@@ -374,6 +382,12 @@ int sysdb_initgroups(TALLOC_CTX *mem_ctx,
                      struct sss_domain_info *domain,
                      const char *name,
                      struct ldb_result **res);
+
+int sysdb_get_groups_by_user(TALLOC_CTX *mem_ctx,
+                     struct sysdb_ctx *ctx,
+                     struct sss_domain_info *domain,
+                     const char *name,
+                     struct ldb_result **_res);
 
 int sysdb_get_user_attr(TALLOC_CTX *mem_ctx,
                         struct sysdb_ctx *ctx,

@@ -85,6 +85,11 @@ struct sudo_ctx {
     time_t id_timeout;
 };
 
+struct sudo_cmd_ctx {
+    int negated;
+    char * fqcomnd;
+    char * arg;
+};
 struct sudo_client {
     struct sudo_ctx *sudoctx;
     struct sbus_connection *conn;

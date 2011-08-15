@@ -121,6 +121,7 @@ struct sss_sudo_msg_contents
   char * const * user_env;
  
   /* command with arguments */
+  char * fq_command;
   char ** command;
   int command_count;
 

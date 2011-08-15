@@ -476,6 +476,107 @@ done:
     return ret;
 }
 
+
+int sysdb_get_groups_by_user(TALLOC_CTX *mem_ctx,
+                     struct sysdb_ctx *ctx,
+                     struct sss_domain_info *domain,
+                     const char *name,
+                     struct ldb_result **_res)
+{
+    TALLOC_CTX *tmpctx;
+    struct ldb_result *res;
+    struct ldb_dn *user_dn;
+    struct ldb_request *req;
+    struct ldb_control **ctrl;
+    struct ldb_asq_control *control;
+    static const char *attrs[] = SYSDB_INITGR_ALL_ATTRS;
+    int ret;
+
+    tmpctx = talloc_new(mem_ctx);
+    if (!tmpctx) {
+        return ENOMEM;
+    }
+
+    ret = sysdb_getpwnam(tmpctx, ctx, domain, name, &res);
+    if (ret != EOK) {
+        DEBUG(1, ("sysdb_getpwnam failed: [%d][%s]\n",
+                  ret, strerror(ret)));
+        goto done;
+    }
+
+    if (res->count == 0) {
+        /* User is not cached yet */
+        *_res = talloc_steal(mem_ctx, res);
+        ret = EOK;
+        goto done;
+
+    } else if (res->count != 1) {
+        ret = EIO;
+        DEBUG(1, ("sysdb_getpwnam returned count: [%d]\n", res->count));
+        goto done;
+    }
+
+    /* no need to steal the dn, we are not freeing the result */
+    user_dn = res->msgs[0]->dn;
+
+    /* note we count on the fact that the default search callback
+     * will just keep appending values. This is by design and can't
+     * change so it is ok to already have a result (from the getpwnam)
+     * even before we call the next search */
+
+    ctrl = talloc_array(tmpctx, struct ldb_control *, 2);
+    if (!ctrl) {
+        ret = ENOMEM;
+        goto done;
+    }
+    ctrl[1] = NULL;
+    ctrl[0] = talloc(ctrl, struct ldb_control);
+    if (!ctrl[0]) {
+        ret = ENOMEM;
+        goto done;
+    }
+    ctrl[0]->oid = LDB_CONTROL_ASQ_OID;
+    ctrl[0]->critical = 1;
+    control = talloc(ctrl[0], struct ldb_asq_control);
+    if (!control) {
+        ret = ENOMEM;
+        goto done;
+    }
+    control->request = 1;
+    control->source_attribute = talloc_strdup(control, SYSDB_INITGR_ATTR);
+    if (!control->source_attribute) {
+        ret = ENOMEM;
+        goto done;
+    }
+    control->src_attr_len = strlen(control->source_attribute);
+    ctrl[0]->data = control;
+
+    ret = ldb_build_search_req(&req, ctx->ldb, tmpctx,
+                               user_dn, LDB_SCOPE_BASE,
+                               SYSDB_INITGR_ALL_FILTER, attrs, ctrl,
+                               res, ldb_search_default_callback,
+                               NULL);
+    if (ret != LDB_SUCCESS) {
+        ret = sysdb_error_to_errno(ret);
+        goto done;
+    }
+
+    ret = ldb_request(ctx->ldb, req);
+    if (ret == LDB_SUCCESS) {
+        ret = ldb_wait(req->handle, LDB_WAIT_ALL);
+    }
+    if (ret != LDB_SUCCESS) {
+        ret = sysdb_error_to_errno(ret);
+        goto done;
+    }
+
+    *_res = talloc_steal(mem_ctx, res);
+
+done:
+    talloc_zfree(tmpctx);
+    return ret;
+}
+
 int sysdb_get_user_attr(TALLOC_CTX *mem_ctx,
                         struct sysdb_ctx *ctx,
                         struct sss_domain_info *domain,
