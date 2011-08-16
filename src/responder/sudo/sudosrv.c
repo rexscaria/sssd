@@ -109,14 +109,14 @@ errno_t prepare_filter(char ** filter_in,uid_t user_id,char * host, struct ldb_r
 
 
     for(i=0;i< res->count;i++){
-        filter = talloc_asprintf_append(filter,"("SYSDB_SUDO_USER_ATTR"=%s)",ldb_msg_find_attr_as_string(res->msgs[i], SYSDB_NAME, NULL));
+        filter = talloc_asprintf_append(filter,"("SYSDB_SUDO_USER_ATTR"=%%%s)",ldb_msg_find_attr_as_string(res->msgs[i], SYSDB_NAME, NULL));
         if (!filter) {
             DEBUG(0, ("Failed to build filter - %s\n",filter));
             ret = ENOMEM;
             goto done;
         }
     }
-    filter = talloc_asprintf_append(filter,")("SYSDB_SUDO_HOST_ATTR"=+*)");
+    filter = talloc_asprintf_append(filter,")(|("SYSDB_SUDO_HOST_ATTR"=+*)");
     if (!filter) {
         DEBUG(0, ("Failed to build filter - %s\n",filter));
         ret = ENOMEM;
@@ -128,7 +128,7 @@ errno_t prepare_filter(char ** filter_in,uid_t user_id,char * host, struct ldb_r
         ret = ENOMEM;
         goto done;
     }
-    filter = talloc_asprintf_append(filter,"("SYSDB_SUDO_HOST_ATTR"=%s)",host);
+    filter = talloc_asprintf_append(filter,"("SYSDB_SUDO_HOST_ATTR"=%s))",host);
     if (!filter) {
         DEBUG(0, ("Failed to build filter - %s\n",filter));
         ret = ENOMEM;
@@ -176,11 +176,11 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
     struct ldb_result *res;
     int ret;
     size_t count;
-    int i,flag=0;
+    int i,flag=0,valid_user_count=0;
     TALLOC_CTX *listctx;
     list_sss *list, *current, *tmp;
     struct sudo_cmd_ctx * sudo_cmnd;
-    char * host,*tmphost,*domain_name ;
+    char * host,*tmphost,*domain_name,*tmpuser ;
 
     fprintf(stdout,"in Sudo rule\n");
     tmpctx = talloc_new(sudocli);
@@ -206,7 +206,7 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
         }
         goto done;
     }
-    filter = talloc_asprintf(tmpctx,"|(|("SYSDB_SUDO_USER_ATTR"=%s)",user_name);
+    filter = talloc_asprintf(tmpctx,"&(|("SYSDB_SUDO_USER_ATTR"=%s)",user_name);
     if (!filter) {
         DEBUG(0, ("Failed to build filter - %s\n",filter));
         ret = ENOMEM;
@@ -250,15 +250,13 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
     }
     initList(&list);
 
-    for(i=0; i< count ; i++) {
+    for(i=0; i < count ; i++) {
         appendNode(listctx, &list, sudo_rules_msgs[i]);
     }
     current = list;
     sudo_cmnd = talloc(listctx,struct sudo_cmd_ctx);
 
     while(current!=NULL) {
-
-
 
         DEBUG(0, ("--sudoOrder: %f\n",
                 ldb_msg_find_attr_as_double((struct ldb_message *)current->data,
@@ -286,7 +284,7 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
                                      "%s",
                                      (const char *) (el->values[i].data));
 
-            if(fstrcmp(tmpcmd,"ALL") == 0){
+            if(strcmp(tmpcmd,"ALL") == 0){
                 current=current->next;
                 flag=1;
                 break;
@@ -386,6 +384,47 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
         tmp = current->next;
         delNode(&list,current);
         current = tmp;
+    }
+    current = list;
+    ////////***/////////
+    while(current!=NULL){
+        el = ldb_msg_find_element((struct ldb_message *)current->data,
+                                  SYSDB_SUDO_USER_ATTR);
+
+        if (!el) {
+            DEBUG(0, ("Failed to get sudo hosts for sudorule [%s]\n",
+                    ldb_dn_get_linearized(((struct ldb_message *)current->data)->dn)));
+            tmp = current->next;
+            delNode(&list,current);
+            current = tmp;
+            continue;
+        }
+        flag = 0;
+
+        for (i = 0; i < el->num_values; i++) {
+
+            DEBUG(0, ("sudoUser: %s\n" ,(const char *) (el->values[i].data)));
+            tmpuser = ( char *) (el->values[i].data);
+            if(tmpuser[0] == '+'){
+                tmpuser++;
+                if(innetgr(tmpuser,NULL,user_name,domain_name) == 1){
+                    flag = 1;
+                }
+            }
+            else{
+                valid_user_count++;
+                break;
+            }
+        }
+
+        if(flag == 1 || valid_user_count > 0){
+            current = current -> next;
+            continue;
+        }
+        tmp = current->next;
+        delNode(&list,current);
+        current = tmp;
+        continue;
     }
     setenv("_SSS_LOOPS", "NO", 0);
 
