@@ -825,7 +825,7 @@ errno_t sysdb_netgr_to_entries(TALLOC_CTX *mem_ctx,
                     }
 
                     tmp_entry[c] = talloc_zero(tmp_entry,
-                                                  struct sysdb_netgroup_ctx);
+                                               struct sysdb_netgroup_ctx);
                     if (!tmp_entry[c]) {
                         ret = ENOMEM;
                         goto done;
@@ -833,10 +833,10 @@ errno_t sysdb_netgr_to_entries(TALLOC_CTX *mem_ctx,
 
                     tmp_entry[c]->type = SYSDB_NETGROUP_TRIPLE_VAL;
                     ret = sysdb_netgr_split_triple(tmp_entry[c],
-                                        triple_str,
-                                        &tmp_entry[c]->value.triple.hostname,
-                                        &tmp_entry[c]->value.triple.username,
-                                        &tmp_entry[c]->value.triple.domainname);
+                                                   triple_str,
+                                                   &tmp_entry[c]->value.triple.hostname,
+                                                   &tmp_entry[c]->value.triple.username,
+                                                   &tmp_entry[c]->value.triple.domainname);
                     if (ret != EOK) {
                         goto done;
                     }
@@ -848,7 +848,7 @@ errno_t sysdb_netgr_to_entries(TALLOC_CTX *mem_ctx,
             if (el != NULL) {
                 for(j = 0; j < el->num_values; j++) {
                     tmp_entry[c] = talloc_zero(tmp_entry,
-                                                  struct sysdb_netgroup_ctx);
+                                               struct sysdb_netgroup_ctx);
                     if (!tmp_entry[c]) {
                         ret = ENOMEM;
                         goto done;
@@ -856,8 +856,8 @@ errno_t sysdb_netgr_to_entries(TALLOC_CTX *mem_ctx,
 
                     tmp_entry[c]->type = SYSDB_NETGROUP_GROUP_VAL;
                     tmp_entry[c]->value.groupname = talloc_strndup(tmp_entry[c],
-                                               (const char *)el->values[j].data,
-                                               el->values[j].length);
+                                                                   (const char *)el->values[j].data,
+                                                                   el->values[j].length);
                     if (tmp_entry[c]->value.groupname == NULL) {
                         ret = ENOMEM;
                         goto done;
@@ -875,7 +875,7 @@ errno_t sysdb_netgr_to_entries(TALLOC_CTX *mem_ctx,
     *entries = talloc_steal(mem_ctx, tmp_entry);
     ret = EOK;
 
-done:
+    done:
     talloc_free(tmp_ctx);
     return ret;
 }

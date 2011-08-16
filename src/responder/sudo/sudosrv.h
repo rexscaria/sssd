@@ -17,7 +17,7 @@
 
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-*/
+ */
 
 #ifndef _SUDOSRV_PRIVATE_H_
 #define _SUDOSRV_PRIVATE_H_
@@ -56,25 +56,25 @@
 
 static int sudo_query_validation(DBusMessage *message, struct sbus_connection *conn);
 struct sbus_method sudo_methods[] = {
-  
-    { SUDO_METHOD_QUERY, sudo_query_validation },
-    { NULL, NULL }
+
+                                     { SUDO_METHOD_QUERY, sudo_query_validation },
+                                     { NULL, NULL }
 };
 
 struct sbus_interface sudo_monitor_interface = {
-    SUDO_SERVER_INTERFACE,
-    SUDO_SERVER_PATH,
-    SBUS_DEFAULT_VTABLE,
-    sudo_methods,
-    NULL
+                                                SUDO_SERVER_INTERFACE,
+                                                SUDO_SERVER_PATH,
+                                                SBUS_DEFAULT_VTABLE,
+                                                sudo_methods,
+                                                NULL
 };
 
 struct sbus_interface sudo_dp_interface = {
-    SUDO_DP_INTERFACE,
-    SUDO_DP_PATH,
-    SBUS_DEFAULT_VTABLE,
-    NULL/*sudo_dp_methods*/,
-    NULL
+                                           SUDO_DP_INTERFACE,
+                                           SUDO_DP_PATH,
+                                           SBUS_DEFAULT_VTABLE,
+                                           NULL/*sudo_dp_methods*/,
+                                           NULL
 };
 
 struct sudo_ctx {
@@ -100,17 +100,17 @@ struct sudo_client {
 
 enum error_types_sudo_responder{
 
-  SSS_SUDO_RESPONDER_SUCCESS = 0x01,
-  SSS_SUDO_RESPONDER_FAILED,
-  SSS_SUDO_RESPONDER_BUF_ERR,
-  SSS_SUDO_RESPONDER_CONNECTION_ERR,
-  SSS_SUDO_RESPONDER_SYSTEM_ERR,
-  SSS_SUDO_RESPONDER_LOG_ERR,
-  SSS_SUDO_RESPONDER_MESSAGE_ERR,
-  SSS_SUDO_RESPONDER_REPLY_ERR,
-  SSS_SUDO_RESPONDER_DHASH_ERR,
-  SUDO_LDB_CONNECT_ERR,
-  SUDO_LDB_SEARCH_ERR
+    SSS_SUDO_RESPONDER_SUCCESS = 0x01,
+    SSS_SUDO_RESPONDER_FAILED,
+    SSS_SUDO_RESPONDER_BUF_ERR,
+    SSS_SUDO_RESPONDER_CONNECTION_ERR,
+    SSS_SUDO_RESPONDER_SYSTEM_ERR,
+    SSS_SUDO_RESPONDER_LOG_ERR,
+    SSS_SUDO_RESPONDER_MESSAGE_ERR,
+    SSS_SUDO_RESPONDER_REPLY_ERR,
+    SSS_SUDO_RESPONDER_DHASH_ERR,
+    SUDO_LDB_CONNECT_ERR,
+    SUDO_LDB_SEARCH_ERR
 
 };
 #endif

@@ -9,10 +9,10 @@
 
 
 /*
-**  initList()
-**  initialize a list
-**
-*/
+ **  initList()
+ **  initialize a list
+ **
+ */
 void initList(list_sss **list)
 {
     (*list)=NULL;
@@ -20,10 +20,10 @@ void initList(list_sss **list)
 
 
 /*
-**  allocateNode()
-**  allocate a new node.
-**
-*/
+ **  allocateNode()
+ **  allocate a new node.
+ **
+ */
 
 list_sss *allocateNode(TALLOC_CTX *ctx,void *data)
 {
@@ -43,9 +43,9 @@ list_sss *allocateNode(TALLOC_CTX *ctx,void *data)
 }
 
 /*
-**  appendNode()
-**  appends a node to the end of a list
-*/
+ **  appendNode()
+ **  appends a node to the end of a list
+ */
 
 void appendNode(TALLOC_CTX * ctx,list_sss **head,void * data)
 {
@@ -64,10 +64,10 @@ void appendNode(TALLOC_CTX * ctx,list_sss **head,void * data)
 
 
 /*
-**  is_empty_list()
-**  check if a list variable is NULL
-**
-*/
+ **  is_empty_list()
+ **  check if a list variable is NULL
+ **
+ */
 
 Bool is_empty_list(list_sss *list)
 {
@@ -75,10 +75,10 @@ Bool is_empty_list(list_sss *list)
 }
 
 /*
-**  delNode()
-**  remove a node from a list
-**
-*/
+ **  delNode()
+ **  remove a node from a list
+ **
+ */
 int delNode(list_sss **head,list_sss *node)
 {
     if (is_empty_list(*head) == TRUE)
@@ -102,9 +102,9 @@ int delNode(list_sss **head,list_sss *node)
 
 
 /*
-**  getNthNode()
-**  get nth node in a list
-*/
+ **  getNthNode()
+ **  get nth node in a list
+ */
 
 list_sss *getNthNode(list_sss *list,int n)
 {
@@ -125,10 +125,10 @@ list_sss *getNthNode(list_sss *list,int n)
 
 
 /*
-**  numNodes()
-**  returns number of nodes in the list
-**
-*/
+ **  numNodes()
+ **  returns number of nodes in the list
+ **
+ */
 
 size_t numNodes(list_sss **head)
 {

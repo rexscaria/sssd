@@ -30,6 +30,8 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <fnmatch.h>
+#include <netdb.h>
+
 
 #include <popt.h>
 #include "dhash.h"
@@ -63,10 +65,36 @@ static int sudo_client_destructor(void *ctx)
     return 0;
 }
 
-int prepare_filter(char * filter,uid_t user_id,char * host, struct ldb_result *res){
+char * get_host_name(TALLOC_CTX* ctx){
+    return "arun.scaria.com";
+    struct addrinfo hints, *info, *p;
+    int gai_result;
+
+    char hostname[1024];
+    hostname[1024]='\0';
+    gethostname(hostname, 1023);
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC; /*either IPV4 or IPV6*/
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_CANONNAME;
+
+    if ((gai_result = getaddrinfo(hostname, "http", &hints, &info)) != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(gai_result));
+        exit(1);
+    }
+
+
+    return talloc_asprintf(ctx,"%s", p->ai_canonname);
+
+}
+
+errno_t prepare_filter(char ** filter_in,uid_t user_id,char * host, struct ldb_result *res){
 
     int i,ret=EOK;
-    filter = talloc_asprintf_append(filter,"("SYSDB_SUDO_USER_ATTR"=#%d)",user_id);
+    char *filter;
+
+    filter = talloc_asprintf_append(*filter_in,"("SYSDB_SUDO_USER_ATTR"=#%d)",user_id);
     if (!filter) {
         DEBUG(0, ("Failed to build filter - %s\n",filter));
         ret = ENOMEM;
@@ -107,6 +135,7 @@ int prepare_filter(char * filter,uid_t user_id,char * host, struct ldb_result *r
         goto done;
     }
     done:
+    *filter_in = filter;
     if(ret!=ENOMEM) return EOK;
     else return ret;
 
@@ -123,12 +152,12 @@ int compare_sudo_order(const struct ldb_message **msg1, const struct ldb_message
 }
 
 
-int search_sudo_rules(struct sudo_client *sudocli,
-                      struct sysdb_ctx *sysdb,
-                      struct sss_domain_info * domain,
-                      char * user_name,
-                      uid_t user_id,
-                      struct sss_sudo_msg_contents *sudo_msg) {
+errno_t search_sudo_rules(struct sudo_client *sudocli,
+                          struct sysdb_ctx *sysdb,
+                          struct sss_domain_info * domain,
+                          const char * user_name,
+                          uid_t user_id,
+                          struct sss_sudo_msg_contents *sudo_msg) {
     TALLOC_CTX *tmpctx;
     const char *attrs[] = { SYSDB_SUDO_CONTAINER_ATTR,
                             SYSDB_SUDO_USER_ATTR,
@@ -147,19 +176,24 @@ int search_sudo_rules(struct sudo_client *sudocli,
     struct ldb_result *res;
     int ret;
     size_t count;
-    int i,j,flag=0;
-    double order;
+    int i,flag=0;
     TALLOC_CTX *listctx;
     list_sss *list, *current, *tmp;
     struct sudo_cmd_ctx * sudo_cmnd;
-    char * host = "arun.scaria.com";
-
+    char * host,*tmphost,*domain_name ;
 
     fprintf(stdout,"in Sudo rule\n");
     tmpctx = talloc_new(sudocli);
     if (!tmpctx) {
         return ENOMEM;
     }
+    host = get_host_name(tmpctx);
+    if (!host) {
+        DEBUG(0, ("Failed to build hostname - %s\n",filter));
+        ret = ENOMEM;
+        goto done;
+    }
+    DEBUG(0, ("Host - %s\n",host));
 
     ret  = sysdb_get_groups_by_user(tmpctx,
                                     sysdb,
@@ -178,14 +212,14 @@ int search_sudo_rules(struct sudo_client *sudocli,
         ret = ENOMEM;
         goto done;
     }
-    ret = prepare_filter(filter,user_id,host, res);
+    ret = prepare_filter(&filter,user_id,host, res);
     if (ret==ENOMEM) {
         DEBUG(0, ("Failed to build filter - %s\n",filter));
         goto done;
     }
 
 
-    DEBUG(0,(stdout,"Filter - %s\n",filter));
+    DEBUG(0,("Filter - %s\n",filter));
     ret = sysdb_search_sudo_rules(tmpctx,
                                   sysdb,
                                   domain,
@@ -245,12 +279,18 @@ int search_sudo_rules(struct sudo_client *sudocli,
         }
         flag = 0;
         /* see if this is a user */
-        for (j = 0; j < el->num_values; j++) {
-            DEBUG(0, ("sudoCommand: %s\n" ,(const char *) (el->values[j].data)));
+        for (i = 0; i < el->num_values; i++) {
+            DEBUG(0, ("sudoCommand: %s\n" ,(const char *) (el->values[i].data)));
             /* Do command elimination here */
             tmpcmd = talloc_asprintf(listctx,
                                      "%s",
-                                     (const char *) (el->values[j].data));
+                                     (const char *) (el->values[i].data));
+
+            if(fstrcmp(tmpcmd,"ALL") == 0){
+                current=current->next;
+                flag=1;
+                break;
+            }
             space = strchr(tmpcmd,' ');
             if(space != NULL) {
                 *space = '\0';
@@ -282,7 +322,72 @@ int search_sudo_rules(struct sudo_client *sudocli,
         current = tmp;
 
     }
+    ///
+    ret = unsetenv("_SSS_LOOPS");
+    if (ret != EOK) {
+        DEBUG(0, ("Failed to unset _SSS_LOOPS, "
+                "sudo rule elimination might not work as expected.\n"));
+    }
 
+    current = list;
+    domain_name = sysdb->domain->name;
+    while(current!=NULL) {
+
+
+
+        DEBUG(0, ("\n\n\n\n--sudoOrder: %f\n",
+                ldb_msg_find_attr_as_double((struct ldb_message *)current->data,
+                                            SYSDB_SUDO_ORDER_ATTR,
+                                            0.0)));
+        DEBUG(0, ("--dn: %s----\n",
+                ldb_dn_get_linearized(((struct ldb_message *)current->data)->dn)));
+
+        el = ldb_msg_find_element((struct ldb_message *)current->data,
+                                  SYSDB_SUDO_HOST_ATTR);
+
+        if (!el) {
+            DEBUG(0, ("Failed to get sudo hosts for sudorule [%s]\n",
+                    ldb_dn_get_linearized(((struct ldb_message *)current->data)->dn)));
+            current = current->next;
+            continue;
+        }
+        flag = 0;
+
+        for (i = 0; i < el->num_values; i++) {
+
+            DEBUG(0, ("sudoHost: %s\n" ,(const char *) (el->values[i].data)));
+            tmphost = ( char *) (el->values[i].data);
+            if(strcmp(tmphost,"ALL")==0){
+                current=current->next;
+                flag=1;
+                break;
+            }
+            else if(tmphost[0] == '+'){
+                ++tmphost;
+                if(innetgr(tmphost,host,NULL,domain_name) == 1){
+                    current=current->next;
+                    flag=1;
+                    break;
+
+                }
+            }
+            else {
+                if(strcmp(tmphost,host)==0){
+                    current=current->next;
+                    flag=1;
+                    break;
+                }
+            }
+
+        }
+        if(flag==1) {
+            continue;
+        }
+        tmp = current->next;
+        delNode(&list,current);
+        current = tmp;
+    }
+    setenv("_SSS_LOOPS", "NO", 0);
 
     talloc_free(listctx);
 
@@ -480,7 +585,7 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
     }
 
     user_name = ldb_msg_find_attr_as_string(ldb_msg, SYSDB_NAME, NULL);
-    user_id = ldb_msg_find_attr_as_string(ldb_msg, SYSDB_UIDNUM, NULL);
+    user_id = ldb_msg_find_attr_as_uint64(ldb_msg, SYSDB_UIDNUM, 0);
     ret =  search_sudo_rules(sudocli, sysdblist[i],sysdblist[i]->domain, "tom",user_id,msg);
     if(ret != EOK){
         DEBUG(0, ("Error in rule"));

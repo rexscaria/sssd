@@ -20,7 +20,7 @@
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>
-*/
+ */
 
 #ifndef _SSS_SUDO_CLI_H_
 #define _SSS_SUDO_CLI_H_
@@ -55,7 +55,7 @@
 
 #ifndef _SSSCLI_H
 
-   /* If sss_cli.h is not included */
+/* If sss_cli.h is not included */
 struct sss_cli_req_data {
     size_t len;
     const void *data;
@@ -75,15 +75,15 @@ enum sss_status {
 
 enum error_types_sudo{
 
-  SSS_SUDO_SUCCESS = 0x01,
-  SSS_SUDO_FAILED,
-  SSS_SUDO_BUF_ERR,
-  SSS_SUDO_CONNECTION_ERR,
-  SSS_SUDO_SYSTEM_ERR,
-  SSS_SUDO_LOG_ERR,
-  SSS_SUDO_LOG_NOTICE,
-  SSS_SUDO_MESSAGE_ERR,
-  SSS_SUDO_REPLY_ERR
+    SSS_SUDO_SUCCESS = 0x01,
+    SSS_SUDO_FAILED,
+    SSS_SUDO_BUF_ERR,
+    SSS_SUDO_CONNECTION_ERR,
+    SSS_SUDO_SYSTEM_ERR,
+    SSS_SUDO_LOG_ERR,
+    SSS_SUDO_LOG_NOTICE,
+    SSS_SUDO_MESSAGE_ERR,
+    SSS_SUDO_REPLY_ERR
 
 };
 
@@ -96,37 +96,37 @@ enum sss_sudo_validation_status {
 struct sss_sudo_msg_contents
 {
 
-  /* from user_info */
-  uid_t userid;
-  char *cwd;
-  char *tty;
-  
-  /* from settings */
-  char * runas_user;
-  char * runas_group;
-  char * prompt;
-  char * network_addrs;
-  int use_sudoedit;
-  int use_set_home;
-  int use_preserve_environment;
-  int use_implied_shell;
-  int use_login_shell;
-  int use_run_shell;
-  int use_preserve_groups;
-  int use_ignore_ticket;
-  int use_noninteractive;
-  int debug_level; 
+    /* from user_info */
+    uid_t userid;
+    char *cwd;
+    char *tty;
 
-  /*from user_env*/
-  char * const * user_env;
- 
-  /* command with arguments */
-  char * fq_command;
-  char ** command;
-  int command_count;
+    /* from settings */
+    char * runas_user;
+    char * runas_group;
+    char * prompt;
+    char * network_addrs;
+    int use_sudoedit;
+    int use_set_home;
+    int use_preserve_environment;
+    int use_implied_shell;
+    int use_login_shell;
+    int use_run_shell;
+    int use_preserve_groups;
+    int use_ignore_ticket;
+    int use_noninteractive;
+    int debug_level;
 
-  /* Clients pid */
-  int cli_pid;
+    /*from user_env*/
+    char * const * user_env;
+
+    /* command with arguments */
+    char * fq_command;
+    char ** command;
+    int command_count;
+
+    /* Clients pid */
+    int cli_pid;
 };
 
 #define  SSS_SUDO_ITEM_RUSER                "runas_user"

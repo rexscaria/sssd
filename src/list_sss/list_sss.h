@@ -32,26 +32,23 @@
 #endif
 
 typedef int     Bool;
-typedef void    (*Vfunc)(void **);
-typedef int     (*Ifunc)(void *,void *);
+
 
 
 /*
-** the linked list structure
-*/
+ ** the linked list structure
+ */
 
 typedef struct _list_sss
 {
-    void
-        *data;          /* void pointer for user data */
+    void *data;
 
-    struct _list_sss
-        *next;          /* pointer to next node */
+    struct _list_sss *next;
 } list_sss;
 
 /*
-** function prototypes
-*/
+ ** function prototypes
+ */
 void        initList            (list_sss **list);
 list_sss    *allocateNode       (TALLOC_CTX *ctx,void *data);
 void        appendNode          (TALLOC_CTX *ctx,list_sss **list,void * data);
