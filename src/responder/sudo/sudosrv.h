@@ -97,6 +97,15 @@ struct sudo_client {
     bool initialized;
 };
 
+/*the Dlinked list structure for sudo rules */
+
+struct sss_sudorule_list
+{
+    struct ldb_message *data;
+
+    struct sss_sudorule_list *next;
+    struct sss_sudorule_list *prev;
+} ;
 
 enum error_types_sudo_responder{
 
@@ -109,8 +118,7 @@ enum error_types_sudo_responder{
     SSS_SUDO_RESPONDER_MESSAGE_ERR,
     SSS_SUDO_RESPONDER_REPLY_ERR,
     SSS_SUDO_RESPONDER_DHASH_ERR,
-    SUDO_LDB_CONNECT_ERR,
-    SUDO_LDB_SEARCH_ERR
+    SSS_SUDO_RESPONDER_MEMORY_ERR
 
 };
 #endif

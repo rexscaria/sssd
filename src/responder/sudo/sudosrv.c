@@ -36,6 +36,7 @@
 #include <popt.h>
 #include "dhash.h"
 #include "util/util.h"
+#include "util/dlinklist.h"
 #include "db/sysdb.h"
 #include "db/sysdb_private.h"
 #include "sbus/sbus_client.h"
@@ -50,8 +51,16 @@
 #include "responder/common/responder_packet.h"
 #include "providers/data_provider.h"
 #include "monitor/monitor_interfaces.h"
-#include "list_sss/list_sss.h"
 
+#define FILTER_APPEND_CHECK(filter_in,filter_out, append_str, str_arg)          \
+        do {                                                                    \
+            filter_out = talloc_asprintf_append(filter_in,append_str, str_arg); \
+            if (!filter_out) {                                                  \
+                DEBUG(0, ("Failed to build filter\n"));                         \
+                ret = ENOMEM;                                                   \
+                goto done;                                                      \
+            }                                                                   \
+        }while(0);
 
 
 
@@ -65,12 +74,12 @@ static int sudo_client_destructor(void *ctx)
     return 0;
 }
 
-char * get_host_name(TALLOC_CTX* ctx){
-    return "arun.scaria.com";
-    struct addrinfo hints, *info, *p;
+char * get_host_name(TALLOC_CTX* mem_ctx){
+
+    struct addrinfo hints, *info;
     int gai_result;
 
-    char hostname[1024];
+    char *hostname = talloc_size(mem_ctx,1024);
     hostname[1024]='\0';
     gethostname(hostname, 1023);
 
@@ -85,207 +94,121 @@ char * get_host_name(TALLOC_CTX* ctx){
     }
 
 
-    return talloc_asprintf(ctx,"%s", p->ai_canonname);
+    return talloc_strdup(mem_ctx, info->ai_canonname);
 
 }
 
-errno_t prepare_filter(char ** filter_in,uid_t user_id,char * host, struct ldb_result *res){
+errno_t prepare_filter( TALLOC_CTX * mem_ctx,
+                        const char * username,
+                        uid_t user_id,
+                        char * host,
+                        struct ldb_result *groups_res,
+                        char ** filter_out)   {
 
     int i,ret=EOK;
     char *filter;
+    const char * group_name;
 
-    filter = talloc_asprintf_append(*filter_in,"("SYSDB_SUDO_USER_ATTR"=#%d)",user_id);
+    filter = talloc_asprintf(mem_ctx,"&(|("SYSDB_SUDO_USER_ATTR"=%s)",username);
     if (!filter) {
-        DEBUG(0, ("Failed to build filter - %s\n",filter));
-        ret = ENOMEM;
-        goto done;
-    }
-    filter = talloc_asprintf_append(filter,"("SYSDB_SUDO_USER_ATTR"=+*)");
-    if (!filter) {
-        DEBUG(0, ("Failed to build filter - %s\n",filter));
+        DEBUG(0, ("Failed to build filter \n"));
         ret = ENOMEM;
         goto done;
     }
 
+    FILTER_APPEND_CHECK(filter,filter,"("SYSDB_SUDO_USER_ATTR"=#%d)",user_id);
 
-    for(i=0;i< res->count;i++){
-        filter = talloc_asprintf_append(filter,"("SYSDB_SUDO_USER_ATTR"=%%%s)",ldb_msg_find_attr_as_string(res->msgs[i], SYSDB_NAME, NULL));
-        if (!filter) {
-            DEBUG(0, ("Failed to build filter - %s\n",filter));
-            ret = ENOMEM;
+    FILTER_APPEND_CHECK(filter,filter,"("SYSDB_SUDO_USER_ATTR"=+*)",NULL);
+
+    for(i=0;i< groups_res->count;i++){
+        group_name = ldb_msg_find_attr_as_string(groups_res->msgs[i], SYSDB_NAME, NULL);
+        if( !group_name){
+            DEBUG(0,("Failed to get group name from group search result"));
+            ret = ENOENT;
             goto done;
         }
+        FILTER_APPEND_CHECK(filter,filter,"("SYSDB_SUDO_USER_ATTR"=%%%s)",group_name);
     }
-    filter = talloc_asprintf_append(filter,")(|("SYSDB_SUDO_HOST_ATTR"=+*)");
-    if (!filter) {
-        DEBUG(0, ("Failed to build filter - %s\n",filter));
-        ret = ENOMEM;
-        goto done;
-    }
-    filter = talloc_asprintf_append(filter,"("SYSDB_SUDO_HOST_ATTR"=ALL)");
-    if (!filter) {
-        DEBUG(0, ("Failed to build filter - %s\n",filter));
-        ret = ENOMEM;
-        goto done;
-    }
-    filter = talloc_asprintf_append(filter,"("SYSDB_SUDO_HOST_ATTR"=%s))",host);
-    if (!filter) {
-        DEBUG(0, ("Failed to build filter - %s\n",filter));
-        ret = ENOMEM;
-        goto done;
-    }
+    FILTER_APPEND_CHECK(filter,filter,")(|("SYSDB_SUDO_HOST_ATTR"=+*)",NULL);
+
+    FILTER_APPEND_CHECK(filter,filter,"("SYSDB_SUDO_HOST_ATTR"=ALL)",NULL);
+
+    FILTER_APPEND_CHECK(filter,filter,"("SYSDB_SUDO_HOST_ATTR"=%s))",host);
+
+
     done:
-    *filter_in = filter;
-    if(ret!=ENOMEM) return EOK;
-    else return ret;
+    *filter_out = filter;
+    return ret;
 
 }
 
 
 int compare_sudo_order(const struct ldb_message **msg1, const struct ldb_message **msg2)
 {
+    int ret;
     double order_msg1 = ldb_msg_find_attr_as_double(*msg1, SYSDB_SUDO_ORDER_ATTR, 0.0);
     double order_msg2 = ldb_msg_find_attr_as_double(*msg2, SYSDB_SUDO_ORDER_ATTR, 0.0);
-    if(order_msg1>order_msg2) return 1;
-    else if (order_msg1==order_msg1) return 0;
-    else return -1;
+    /*
+     * No need to consider errors since zero is assumed by default
+     *
+     **/
+    ret = (order_msg1 < order_msg2)?  1: ((order_msg1 == order_msg1) ?  0 :  -1);
+    return ret;
 }
 
+errno_t eliminate_sudorules_by_sudocmd(TALLOC_CTX * mem_ctx,
+                                       struct sss_sudorule_list ** head,
+                                       const char * fq_command) {
 
-errno_t search_sudo_rules(struct sudo_client *sudocli,
-                          struct sysdb_ctx *sysdb,
-                          struct sss_domain_info * domain,
-                          const char * user_name,
-                          uid_t user_id,
-                          struct sss_sudo_msg_contents *sudo_msg) {
-    TALLOC_CTX *tmpctx;
-    const char *attrs[] = { SYSDB_SUDO_CONTAINER_ATTR,
-                            SYSDB_SUDO_USER_ATTR,
-                            SYSDB_SUDO_HOST_ATTR,
-                            SYSDB_SUDO_OPTION_ATTR,
-                            SYSDB_SUDO_COMMAND_ATTR,
-                            SYSDB_SUDO_RUNAS_USER_ATTR,
-                            SYSDB_SUDO_RUNAS_GROUP_ATTR,
-                            SYSDB_SUDO_NOT_BEFORE_ATTR,
-                            SYSDB_SUDO_NOT_AFTER_ATTR,
-                            SYSDB_SUDO_ORDER_ATTR,
-                            NULL };
-    char *filter = NULL, *tmpcmd,*space;
-    struct ldb_message **sudo_rules_msgs;
+
+    struct sss_sudorule_list * list_head = *head , *current_node, *tmp_node;
     struct ldb_message_element *el;
-    struct ldb_result *res;
-    int ret;
-    size_t count;
-    int i,flag=0,valid_user_count=0;
-    TALLOC_CTX *listctx;
-    list_sss *list, *current, *tmp;
+    int flag =0;
+    int i=0;
+    char * tmpcmd, *space;
     struct sudo_cmd_ctx * sudo_cmnd;
-    char * host,*tmphost,*domain_name,*tmpuser ;
 
-    fprintf(stdout,"in Sudo rule\n");
-    tmpctx = talloc_new(sudocli);
-    if (!tmpctx) {
+    sudo_cmnd = talloc_zero(mem_ctx,struct sudo_cmd_ctx);
+    if(!sudo_cmnd){
+        DEBUG(0,("Failed to allocate command structure."));
         return ENOMEM;
     }
-    host = get_host_name(tmpctx);
-    if (!host) {
-        DEBUG(0, ("Failed to build hostname - %s\n",filter));
-        ret = ENOMEM;
-        goto done;
-    }
-    DEBUG(0, ("Host - %s\n",host));
-
-    ret  = sysdb_get_groups_by_user(tmpctx,
-                                    sysdb,
-                                    domain,
-                                    user_name,
-                                    &res);
-    if (ret) {
-        if (ret == ENOENT) {
-            ret = EOK;
-        }
-        goto done;
-    }
-    filter = talloc_asprintf(tmpctx,"&(|("SYSDB_SUDO_USER_ATTR"=%s)",user_name);
-    if (!filter) {
-        DEBUG(0, ("Failed to build filter - %s\n",filter));
-        ret = ENOMEM;
-        goto done;
-    }
-    ret = prepare_filter(&filter,user_id,host, res);
-    if (ret==ENOMEM) {
-        DEBUG(0, ("Failed to build filter - %s\n",filter));
-        goto done;
-    }
-
-
-    DEBUG(0,("Filter - %s\n",filter));
-    ret = sysdb_search_sudo_rules(tmpctx,
-                                  sysdb,
-                                  domain,
-                                  filter,
-                                  attrs,
-                                  &count,
-                                  &sudo_rules_msgs);
-
-    if (ret) {
-        if (ret == ENOENT) {
-            ret = EOK;
-        }
-        goto done;
-    }
-
-    DEBUG(0, ("Found %d sudo rule entries!\n\n", count));
-
-    if (count == 0) {
-        ret = EOK;
-        goto done;
-    }
-
-    qsort(sudo_rules_msgs,count,sizeof(struct ldb_message *), (__compar_fn_t)compare_sudo_order);
-
-    listctx = talloc_new(NULL);
-    if (!listctx) {
-        return ENOMEM;
-    }
-    initList(&list);
-
-    for(i=0; i < count ; i++) {
-        appendNode(listctx, &list, sudo_rules_msgs[i]);
-    }
-    current = list;
-    sudo_cmnd = talloc(listctx,struct sudo_cmd_ctx);
-
-    while(current!=NULL) {
+    current_node = list_head;
+    while(current_node != NULL) {
 
         DEBUG(0, ("--sudoOrder: %f\n",
-                ldb_msg_find_attr_as_double((struct ldb_message *)current->data,
+                ldb_msg_find_attr_as_double(current_node->data,
                                             SYSDB_SUDO_ORDER_ATTR,
                                             0.0)));
         DEBUG(0, ("--dn: %s----\n",
-                ldb_dn_get_linearized(((struct ldb_message *)current->data)->dn)));
+                ldb_dn_get_linearized(current_node->data->dn)));
 
-        el = ldb_msg_find_element((struct ldb_message *)current->data,
+        el = ldb_msg_find_element(current_node->data,
                                   SYSDB_SUDO_COMMAND_ATTR);
         if (!el) {
             DEBUG(0, ("Failed to get sudo commands for sudorule [%s]\n",
-                    ldb_dn_get_linearized(((struct ldb_message *)current->data)->dn)));
-            tmp = current->next;
-            delNode(&list,current);
-            current = tmp;
+                    ldb_dn_get_linearized(current_node->data->dn)));
+            tmp_node = current_node->next;
+            DLIST_REMOVE(list_head,current_node);
+            current_node =  tmp_node;
             continue;
         }
         flag = 0;
-        /* see if this is a user */
+        /* check each command with wild cards */
         for (i = 0; i < el->num_values; i++) {
             DEBUG(0, ("sudoCommand: %s\n" ,(const char *) (el->values[i].data)));
             /* Do command elimination here */
-            tmpcmd = talloc_asprintf(listctx,
+            tmpcmd = talloc_asprintf(mem_ctx,
                                      "%s",
                                      (const char *) (el->values[i].data));
+            if (!tmpcmd) {
+                DEBUG(0, ("Failed to build commands string - dn: %s\n",
+                        ldb_dn_get_linearized(current_node->data->dn)));
+                return ENOMEM;
+            }
 
             if(strcmp(tmpcmd,"ALL") == 0){
-                current=current->next;
+                current_node=current_node->next;
                 flag=1;
                 break;
             }
@@ -304,8 +227,8 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
                 sudo_cmnd->fqcomnd=tmpcmd;
             }
 
-            if(fnmatch(sudo_cmnd->fqcomnd,sudo_msg->fq_command,FNM_PATHNAME) == 0){
-                current=current->next;
+            if(fnmatch(sudo_cmnd->fqcomnd,fq_command,FNM_PATHNAME) == 0){
+                current_node=current_node->next;
                 flag=1;
                 break;
             }
@@ -314,39 +237,44 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
         if(flag==1) {
             continue;
         }
-
-        tmp = current->next;
-        delNode(&list,current);
-        current = tmp;
-
+        tmp_node = current_node->next;
+        DLIST_REMOVE(list_head,current_node);
+        current_node =  tmp_node;
     }
-    ///
-    ret = unsetenv("_SSS_LOOPS");
-    if (ret != EOK) {
-        DEBUG(0, ("Failed to unset _SSS_LOOPS, "
-                "sudo rule elimination might not work as expected.\n"));
-    }
-
-    current = list;
-    domain_name = sysdb->domain->name;
-    while(current!=NULL) {
+    *head = list_head;
+    return EOK;
+}
 
 
+errno_t eliminate_sudorules_by_sudohosts(TALLOC_CTX * mem_ctx,
+                                         struct sss_sudorule_list ** head,
+                                         const char * host_name,
+                                         const char * domain_name) {
+
+
+    struct sss_sudorule_list * list_head = *head , *current_node, *tmp_node;
+    struct ldb_message_element *el;
+    int flag =0;
+    int i=0;
+    char * tmphost;
+
+    current_node = list_head;
+    while(current_node != NULL) {
 
         DEBUG(0, ("\n\n\n\n--sudoOrder: %f\n",
-                ldb_msg_find_attr_as_double((struct ldb_message *)current->data,
+                ldb_msg_find_attr_as_double((struct ldb_message *)current_node->data,
                                             SYSDB_SUDO_ORDER_ATTR,
                                             0.0)));
         DEBUG(0, ("--dn: %s----\n",
-                ldb_dn_get_linearized(((struct ldb_message *)current->data)->dn)));
+                ldb_dn_get_linearized(((struct ldb_message *)current_node->data)->dn)));
 
-        el = ldb_msg_find_element((struct ldb_message *)current->data,
+        el = ldb_msg_find_element((struct ldb_message *)current_node->data,
                                   SYSDB_SUDO_HOST_ATTR);
 
         if (!el) {
             DEBUG(0, ("Failed to get sudo hosts for sudorule [%s]\n",
-                    ldb_dn_get_linearized(((struct ldb_message *)current->data)->dn)));
-            current = current->next;
+                    ldb_dn_get_linearized(((struct ldb_message *)current_node->data)->dn)));
+            current_node = current_node->next;
             continue;
         }
         flag = 0;
@@ -356,22 +284,22 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
             DEBUG(0, ("sudoHost: %s\n" ,(const char *) (el->values[i].data)));
             tmphost = ( char *) (el->values[i].data);
             if(strcmp(tmphost,"ALL")==0){
-                current=current->next;
+                current_node=current_node->next;
                 flag=1;
                 break;
             }
             else if(tmphost[0] == '+'){
                 ++tmphost;
-                if(innetgr(tmphost,host,NULL,domain_name) == 1){
-                    current=current->next;
+                if(innetgr(tmphost,host_name,NULL,domain_name) == 1){
+                    current_node=current_node->next;
                     flag=1;
                     break;
 
                 }
             }
             else {
-                if(strcmp(tmphost,host)==0){
-                    current=current->next;
+                if(strcmp(tmphost,host_name)==0){
+                    current_node=current_node->next;
                     flag=1;
                     break;
                 }
@@ -381,22 +309,36 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
         if(flag==1) {
             continue;
         }
-        tmp = current->next;
-        delNode(&list,current);
-        current = tmp;
+        tmp_node = current_node->next;
+        DLIST_REMOVE(list_head,current_node);
+        current_node =  tmp_node;
     }
-    current = list;
-    ////////***/////////
-    while(current!=NULL){
-        el = ldb_msg_find_element((struct ldb_message *)current->data,
+    *head = list_head;
+    return EOK;
+}
+
+errno_t eliminate_sudorules_by_sudouser_netgroups(TALLOC_CTX * mem_ctx,
+                                                  struct sss_sudorule_list ** head,
+                                                  const char * user_name,
+                                                  const char * domain_name) {
+
+
+    struct sss_sudorule_list * list_head = *head , *current_node, *tmp_node;
+    struct ldb_message_element *el;
+    int flag =0;
+    int i=0, valid_user_count = 0;
+    char * tmpuser;
+
+
+    current_node = list_head;
+    while(current_node != NULL) {
+        el = ldb_msg_find_element((struct ldb_message *)current_node->data,
                                   SYSDB_SUDO_USER_ATTR);
 
         if (!el) {
             DEBUG(0, ("Failed to get sudo hosts for sudorule [%s]\n",
-                    ldb_dn_get_linearized(((struct ldb_message *)current->data)->dn)));
-            tmp = current->next;
-            delNode(&list,current);
-            current = tmp;
+                    ldb_dn_get_linearized(((struct ldb_message *)current_node->data)->dn)));
+            DLIST_REMOVE(list_head,current_node);
             continue;
         }
         flag = 0;
@@ -418,61 +360,436 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
         }
 
         if(flag == 1 || valid_user_count > 0){
-            current = current -> next;
+            current_node = current_node -> next;
             continue;
         }
-        tmp = current->next;
-        delNode(&list,current);
-        current = tmp;
-        continue;
+        tmp_node = current_node->next;
+        DLIST_REMOVE(list_head,current_node);
+        current_node =  tmp_node;
     }
-    setenv("_SSS_LOOPS", "NO", 0);
-
-    talloc_free(listctx);
-
-    done:
-    talloc_zfree(tmpctx);
-    return ret;
+    *head = list_head;
+    return EOK;
 }
 
 
-static int sudo_query_validation(DBusMessage *message, struct sbus_connection *conn)
-{
+errno_t search_sudo_rules(struct sudo_client *sudocli,
+                          struct sysdb_ctx *sysdb,
+                          struct sss_domain_info * domain,
+                          const char * user_name,
+                          uid_t user_id,
+                          struct sss_sudo_msg_contents *sudo_msg,
+                          struct sss_sudorule_list **sudorule_list) {
+    TALLOC_CTX *tmp_mem_ctx;
+    const char *attrs[] = { SYSDB_SUDO_CONTAINER_ATTR,
+                            SYSDB_SUDO_USER_ATTR,
+                            SYSDB_SUDO_HOST_ATTR,
+                            SYSDB_SUDO_OPTION_ATTR,
+                            SYSDB_SUDO_COMMAND_ATTR,
+                            SYSDB_SUDO_RUNAS_USER_ATTR,
+                            SYSDB_SUDO_RUNAS_GROUP_ATTR,
+                            SYSDB_SUDO_NOT_BEFORE_ATTR,
+                            SYSDB_SUDO_NOT_AFTER_ATTR,
+                            SYSDB_SUDO_ORDER_ATTR,
+                            NULL };
+    char *filter = NULL, *host = NULL;
+    struct ldb_message **sudo_rules_msgs;
+    struct ldb_result *res;
+    int ret;
+    size_t count;
+    int i = 0;
+    TALLOC_CTX *listctx;
+    struct sss_sudorule_list *list_head =NULL, *tmp_node;
 
-    dbus_uint32_t header = SSS_SUDO_RESPONDER_HEADER,command_size;
-    struct sudo_client *sudocli;
-    DBusMessage *reply;
-    DBusError dbus_error;
-    DBusMessageIter msg_iter;
-    DBusMessageIter subItem;
-    char **ui;
-    char **command_array;
-    int ret = -1;
-    dbus_bool_t dbret;
-    void *data;
-    int count = 0, i = 0;
-    hash_table_t *settings_table;
-    hash_table_t *env_table;
-    char * result;
-    struct sss_sudo_msg_contents * msg;
+    DEBUG(0,("in Sudo rule elimination\n"));
+    tmp_mem_ctx = talloc_new(NULL);
+    if (!tmp_mem_ctx) {
+        return ENOMEM;
+    }
+
+    ret  = sysdb_get_groups_by_user(tmp_mem_ctx,
+                                    sysdb,
+                                    domain,
+                                    user_name,
+                                    &res);
+    if (ret) {
+        if (ret == ENOENT) {
+            ret = EOK;
+        }
+        goto done;
+    }
+
+    host = get_host_name(tmp_mem_ctx);
+    if (!host) {
+        DEBUG(0, ("Failed to build hostname \n"));
+        return ENOMEM;
+    }
+    DEBUG(0, ("Host - %s\n",host));
+
+    ret = prepare_filter(tmp_mem_ctx,user_name,user_id,host,res,&filter);
+    if (ret!=EOK) {
+        DEBUG(0, ("Failed to build filter - %s\n",filter));
+        goto done;
+    }
+    DEBUG(0,("Filter - %s\n",filter));
+
+    ret = sysdb_search_sudo_rules(tmp_mem_ctx,
+                                  sysdb,
+                                  domain,
+                                  filter,
+                                  attrs,
+                                  &count,
+                                  &sudo_rules_msgs);
+    if (ret) {
+        if (ret == ENOENT) {
+            ret = EOK;
+        }
+        goto done;
+    }
+
+    DEBUG(0, ("Found %d sudo rule entries!\n\n", count));
+
+    if (count == 0) {
+        ret = EOK;
+        goto done;
+    }
+
+    qsort(sudo_rules_msgs,count,sizeof(struct ldb_message *), (__compar_fn_t)compare_sudo_order);
+
+    listctx = talloc_new(tmp_mem_ctx);
+    if (!listctx) {
+        return ENOMEM;
+    }
+
+    for(i=0; i < count ; i++) {
+        tmp_node =  talloc_zero(listctx,struct sss_sudorule_list);
+        tmp_node->data = sudo_rules_msgs[i];
+        tmp_node->next = NULL;
+        tmp_node->prev = NULL;
+        DLIST_ADD_END( list_head, tmp_node, struct sss_sudorule_list *);
+
+    }
+
+
+    ret = eliminate_sudorules_by_sudocmd(tmp_mem_ctx,
+                                         &list_head,
+                                         sudo_msg->fq_command);
+    if (ret != EOK) {
+        DEBUG(0, ("Failed to eliminate sudo rules based on sudo commands\n"));
+        ret = EIO;
+        goto done;
+    }
+
+    ret = unsetenv("_SSS_LOOPS");
+    if (ret != EOK) {
+        DEBUG(0, ("Failed to unset _SSS_LOOPS, "
+                "sudo rule elimination might not work as expected.\n"));
+    }
+
+    ret = eliminate_sudorules_by_sudohosts(tmp_mem_ctx,
+                                           &list_head,
+                                           host,
+                                           sysdb->domain->name);
+    if (ret != EOK) {
+        DEBUG(0, ("Failed to eliminate sudo rules based on sudo Hosts\n"));
+        ret = EIO;
+        goto done;
+    }
+
+    ret = eliminate_sudorules_by_sudouser_netgroups(tmp_mem_ctx,
+                                                    &list_head,
+                                                    user_name,
+                                                    sysdb->domain->name);
+    if (ret != EOK) {
+        DEBUG(0, ("Failed to eliminate sudo rules based on sudo user net groups\n"));
+        ret = EIO;
+        goto done;
+    }
+
+    setenv("_SSS_LOOPS", "NO", 0);
+
+    done:
+    talloc_steal(sudocli,listctx);
+    *sudorule_list = list_head;
+
+    talloc_zfree(tmp_mem_ctx);
+    return ret;
+}
+
+errno_t find_sudorules_for_user_in_db_list(TALLOC_CTX * ctx,
+                                           struct sudo_client *sudocli,
+                                           struct sss_sudo_msg_contents * sudo_msg) {
     struct sysdb_ctx **sysdblist;
-    TALLOC_CTX * tmpctx;
     struct ldb_message *ldb_msg;
     size_t no_ldbs = 0;
     const char *attrs[] = { SYSDB_NAME, SYSDB_UIDNUM, NULL};
-    const char * user_name;
     uid_t user_id;
+    int i = 0,ret;
+    const char * user_name;
+    struct sss_sudorule_list * res_sudorule_list;
 
-    result = strdup("PASS");
+    sysdblist = sudocli->sudoctx->rctx->db_list->dbs;
+    no_ldbs = sudocli->sudoctx->rctx->db_list->num_dbs;
+
+
+    while(i < no_ldbs) {
+
+        ret = sysdb_search_user_by_uid(ctx,
+                                       sysdblist[i],
+                                       sysdblist[i]->domain,
+                                       sudo_msg->userid,
+                                       attrs,
+                                       &ldb_msg);
+        if (ret != EOK) {
+            i++;
+            DEBUG(0, ("No User matched\n"));
+            if (ret == ENOENT) {
+                continue;
+            }
+            DEBUG(0, ("sysdb_search_user_by_uid Returned something other that ENOENT\n"));
+            return ENOMEM;
+        }
+        break;
+
+    }
+    if(ldb_msg == NULL) {
+        DEBUG(0, ("NoUserEntryFound Error. Exit with error message.\n"));
+        return ENOENT;
+    }
+
+    user_name = ldb_msg_find_attr_as_string(ldb_msg, SYSDB_NAME, NULL);
+    user_id = ldb_msg_find_attr_as_uint64(ldb_msg, SYSDB_UIDNUM, 0);
+    if ( user_name == NULL || user_id == 0){
+        DEBUG(0, ("Error in getting user_name and user id. fatal error"));
+        return ENOENT;
+    }
+    ret =  search_sudo_rules(sudocli,
+                             sysdblist[i],
+                             sysdblist[i]->domain,
+                             "tom"/*user_name*/,
+                             user_id,
+                             sudo_msg,
+                             &res_sudorule_list);
+    if(ret != EOK){
+        DEBUG(0, ("Error in rule"));
+    }
+
+    return ret;
+
+}
+
+errno_t sudo_query_parse(TALLOC_CTX *mem_ctx,
+                         struct DBusMessage *message,
+                         struct sss_sudo_msg_contents **sudo_msg_packet){
+    DBusMessageIter msg_iter;
+    DBusMessageIter subItem;
+    hash_table_t *settings_table;
+    hash_table_t *env_table;
+    char **ui;
+    char **command_array;
+    int count = 0;
+    struct sss_sudo_msg_contents *contents;
+
+    contents = talloc_zero(mem_ctx,struct sss_sudo_msg_contents);
+    if(!contents){
+        DEBUG(0,("Failed to allocate sudo msg structure."));
+        return SSS_SUDO_RESPONDER_MEMORY_ERR;
+    }
+
+    if (!dbus_message_iter_init(message, &msg_iter)) {
+        DEBUG(0,( "Message received as empty!\n"));
+        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+    }
+
+        if(DBUS_TYPE_STRUCT != dbus_message_iter_get_arg_type(&msg_iter)) {
+            DEBUG(0,( "Argument is not struct!\n"));
+            return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+        }
+        else{
+            dbus_message_iter_recurse(&msg_iter,&subItem);
+        }
+
+            if(DBUS_TYPE_UINT32 != dbus_message_iter_get_arg_type(&subItem)) {
+                DEBUG(0,("UID failed"));
+                return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+            }
+            else {
+                dbus_message_iter_get_basic(&subItem, &contents->userid);
+                dbus_message_iter_next (&subItem);
+            }
+
+            if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
+                DEBUG(0,("CWD failed"));
+                return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+            }
+            else {
+                dbus_message_iter_get_basic(&subItem, &contents->cwd);
+                dbus_message_iter_next (&subItem);
+            }
+
+            if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
+                DEBUG(0,("TTY failed"));
+                return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+            }
+            else {
+                dbus_message_iter_get_basic(&subItem, &contents->tty);
+                dbus_message_iter_next (&subItem);
+            }
+            if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
+                DEBUG(0,("FQ Command failed"));
+                return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+            }
+            else {
+                dbus_message_iter_get_basic(&subItem, &contents->fq_command);
+            }
+
+            DEBUG(0,("-----------Message---------\n"
+                    "uid : %d\ncwd : %s\ntty : %s\nFQ Command: %s\n",contents->userid,contents->cwd,contents->tty,contents->fq_command));
+
+            dbus_message_iter_next (&msg_iter);
+
+            if(DBUS_TYPE_UINT32 != dbus_message_iter_get_arg_type(&msg_iter)) {
+                DEBUG(0,("array size failed"));
+                return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+            }
+            else {
+                dbus_message_iter_get_basic(&msg_iter, &contents->command_count);
+                DEBUG(0,("Command array size: %d\n",contents->command_count));
+            }
+            dbus_message_iter_next (&msg_iter);
+
+        command_array = (char**)malloc(contents->command_count*sizeof(char *));
+        DEBUG(0,("command : "));
+
+        if( DBUS_TYPE_ARRAY != dbus_message_iter_get_arg_type(&msg_iter)) {
+            DEBUG(0,("Command array failed!\n"));
+            return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+        }
+        else{
+            dbus_message_iter_recurse(&msg_iter,&subItem);
+        }
+
+            for(ui = command_array,count = contents->command_count; count--; ui++) {
+                if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
+                    DEBUG(0,("string array content failed"));
+                    return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+
+                }
+                else {
+                    dbus_message_iter_get_basic(&subItem, ui);
+                    DEBUG(0,("%s ",*ui));
+                    if(!dbus_message_iter_next (&subItem)) {
+                        /*"Array ended. */
+                        break;
+                    }
+                }
+            }
+            DEBUG(0,("\n"));
+
+        contents->command = command_array;
+        dbus_message_iter_next(&msg_iter);
+
+                if( dbus_msg_iter_to_dhash(&msg_iter, &settings_table)!= SSS_SBUS_CONV_SUCCESS){
+                    DEBUG(0,("settings table corrupted!\n"));
+                    return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+                }
+    contents->settings_table = settings_table;
+
+                dbus_message_iter_next(&msg_iter);
+
+                if( dbus_msg_iter_to_dhash(&msg_iter, &env_table)!= SSS_SBUS_CONV_SUCCESS){
+                    DEBUG(0,("environment table corrupted!\n"));
+                    return SSS_SUDO_RESPONDER_MESSAGE_ERR;
+                }
+    contents->env_table = env_table;
+    *sudo_msg_packet = contents;
+
+    DEBUG(0, ("-----------Message END---------\n"));
+    return SSS_SUDO_RESPONDER_SUCCESS;
+
+}
+
+errno_t format_sudo_result_reply(TALLOC_CTX * mem_ctx,
+                                 DBusMessage **reply_msg,
+                                 struct sss_sudo_msg_contents *sudo_msg_packet,
+                                 const char * result){
+
+    dbus_uint32_t header = SSS_SUDO_RESPONDER_HEADER,command_size;
+    DBusMessage *reply;
+    DBusMessageIter msg_iter;
+    DBusMessageIter subItem;
+    char ** command_array;
+    dbus_bool_t dbret;
+
+    reply = *reply_msg;
+
+    command_size = sudo_msg_packet->command_count;
+    dbret = dbus_message_append_args(reply,
+                                     DBUS_TYPE_UINT32, &header,
+                                     DBUS_TYPE_STRING,&result,
+                                     DBUS_TYPE_INVALID);
+    if (!dbret) {
+        DEBUG(0, ("Failed to build sudo dbus reply\n"));
+        return SSS_SUDO_RESPONDER_REPLY_ERR;
+    }
+
+    dbus_message_iter_init_append(reply, &msg_iter);
+
+        if(!dbus_message_iter_open_container(&msg_iter,
+                                             DBUS_TYPE_ARRAY,
+                                             "s",
+                                             &subItem)) {
+            DEBUG(0, ("Out Of Memory!\n"));
+            return SSS_SUDO_RESPONDER_REPLY_ERR;
+        }
+
+                for(command_array = sudo_msg_packet->command ; command_size-- ; command_array++) {
+
+                    if (!dbus_message_iter_append_basic(&subItem,
+                                                        DBUS_TYPE_STRING,
+                                                        command_array)) {
+                        DEBUG(0, ( "Out Of Memory!\n"));
+                        return SSS_SUDO_RESPONDER_REPLY_ERR;
+                    }
+                }
+
+        if (!dbus_message_iter_close_container(&msg_iter,&subItem)) {
+            DEBUG(0, ( "Out Of Memory!\n"));
+            return SSS_SUDO_RESPONDER_REPLY_ERR;
+        }
+
+    if(dbus_dhash_to_msg_iter(&sudo_msg_packet->env_table,&msg_iter) != SSS_SBUS_CONV_SUCCESS){
+        DEBUG(0,("fatal: env message framing failed."));
+        return SSS_SUDO_RESPONDER_DHASH_ERR;
+    }
+
+    *reply_msg = reply;
+
+    return SSS_SUDO_RESPONDER_SUCCESS;
+
+}
+
+static int sudo_query_validation(DBusMessage *message, struct sbus_connection *conn)
+{
+    struct sudo_client *sudocli;
+    DBusMessage *reply;
+    DBusError dbus_error;
+    int ret = -1;
+    void *data;
+
+    char * result;
+    struct sss_sudo_msg_contents * msg;
+
+    TALLOC_CTX * tmpctx;
+
 
     data = sbus_conn_get_private_data(conn);
     sudocli = talloc_get_type(data, struct sudo_client);
     if (!sudocli) {
-        DEBUG(0, ("Connection holds no valid init data\n"));
+        DEBUG(0, ("Connection holds no valid init data exists \n",
+                SSS_SUDO_RESPONDER_CONNECTION_ERR));
         return SSS_SUDO_RESPONDER_CONNECTION_ERR;
     }
-
-    msg = talloc((TALLOC_CTX *)sudocli,struct sss_sudo_msg_contents);
+    result = talloc_strdup(sudocli,"PASS");
 
     /* First thing, cancel the timeout */
     DEBUG(4, ("Cancel SUDO client timeout [%p]\n", sudocli->timeout));
@@ -480,220 +797,62 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
 
     dbus_error_init(&dbus_error);
 
-    if (!dbus_message_iter_init(message, &msg_iter)) {
-        fprintf(stderr, "Message received as empty!\n");
-        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
-    }
+    ret = sudo_query_parse(sudocli,
+                           message,
+                           &msg);
+    if(ret != SSS_SUDO_RESPONDER_SUCCESS){
+        DEBUG(0,( "message parser for sudo returned &d\n",ret));
+        /* TODO: Do the error recovery method */
 
-    if(DBUS_TYPE_STRUCT != dbus_message_iter_get_arg_type(&msg_iter)) {
-        fprintf(stderr, "Argument is not struct!\n");
-        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
     }
-    else{
-        dbus_message_iter_recurse(&msg_iter,&subItem);
-    }
-
-    if(DBUS_TYPE_UINT32 != dbus_message_iter_get_arg_type(&subItem)) {
-        fprintf(stderr,"UID failed");
-        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
-    }
-    else {
-        dbus_message_iter_get_basic(&subItem, &msg->userid);
-        dbus_message_iter_next (&subItem);
-    }
-
-    if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
-        fprintf(stderr,"CWD failed");
-        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
-    }
-    else {
-        dbus_message_iter_get_basic(&subItem, &msg->cwd);
-        dbus_message_iter_next (&subItem);
-    }
-
-    if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
-        fprintf(stderr,"TTY failed");
-        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
-    }
-    else {
-        dbus_message_iter_get_basic(&subItem, &msg->tty);
-        dbus_message_iter_next (&subItem);
-    }
-    if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
-        fprintf(stderr,"FQ Command failed");
-        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
-    }
-    else {
-        dbus_message_iter_get_basic(&subItem, &msg->fq_command);
-    }
-
-    fprintf(stdout,"-----------Message---------\n"
-            "uid : %d\ncwd : %s\ntty : %s\nFQ Command: %s\n",msg->userid,msg->cwd,msg->tty,msg->fq_command);
-
-    dbus_message_iter_next (&msg_iter);
-
-    if(DBUS_TYPE_UINT32 != dbus_message_iter_get_arg_type(&msg_iter)) {
-        fprintf(stderr,"array size failed");
-        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
-    }
-    else {
-        dbus_message_iter_get_basic(&msg_iter, &msg->command_count);
-        fprintf(stdout,"Command array size: %d\n",msg->command_count);
-    }
-    dbus_message_iter_next (&msg_iter);
-
-    command_array = (char**)malloc(msg->command_count*sizeof(char *));
-    fprintf(stdout,"command : ");
-
-    if( DBUS_TYPE_ARRAY != dbus_message_iter_get_arg_type(&msg_iter)) {
-        fprintf(stderr, "Command array failed!\n");
-        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
-    }
-    else{
-        dbus_message_iter_recurse(&msg_iter,&subItem);
-    }
-
-    for(ui = command_array,count = msg->command_count; count--; ui++)
-    {
-        if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&subItem)) {
-            printf("string array content failed");
-            return SSS_SUDO_RESPONDER_MESSAGE_ERR;
-
-        }
-        else {
-            dbus_message_iter_get_basic(&subItem, ui);
-            fprintf(stdout,"%s ",*ui);
-            if(!dbus_message_iter_next (&subItem)) {
-                /*"Array ended. */
-                break;
-            }
-        }
-    }
-    fprintf(stdout,"\n");
-
-    msg->command = command_array;
-    dbus_message_iter_next(&msg_iter);
-
-    if( dbus_msg_iter_to_dhash(&msg_iter, &settings_table)!= SSS_SBUS_CONV_SUCCESS){
-        fprintf(stderr, "settings table corrupted!\n");
-        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
-    }
-
-    dbus_message_iter_next(&msg_iter);
-
-    if( dbus_msg_iter_to_dhash(&msg_iter, &env_table)!= SSS_SBUS_CONV_SUCCESS){
-        fprintf(stderr, "environment table corrupted!\n");
-        return SSS_SUDO_RESPONDER_MESSAGE_ERR;
-    }
-
-    DEBUG(0, ("-----------Message END---------\n"));
-    //////////////////
+    DEBUG(0, ("-----------Message successfully Parsed---------\n"));
+    talloc_set_destructor(sudocli, sudo_client_destructor);
 
     tmpctx = talloc_new(NULL);
     if (!tmpctx) {
         return ENOMEM;
     }
-    i=0;
-    sysdblist = sudocli->sudoctx->rctx->db_list->dbs;
-    no_ldbs = sudocli->sudoctx->rctx->db_list->num_dbs;
-    i=0;
-    while(i < no_ldbs) {
 
-        ret = sysdb_search_user_by_uid(tmpctx,
-                                       sysdblist[i],
-                                       sysdblist[i]->domain,
-                                       msg->userid,
-                                       attrs,
-                                       &ldb_msg);
-        if (ret != EOK) {
-            i++;
-            DEBUG(0, ("No User matched\n"));
-            if (ret == ENOENT) {
 
-                continue;
-            }
-            DEBUG(0, ("sysdb_search_user_by_uid Returned something other that ENOENT\n"));
-            continue;
-        }
-        break;
-
+    ret = find_sudorules_for_user_in_db_list(tmpctx,sudocli,msg);
+    if(ret != EOK ){
+        DEBUG(0, ("sysdb_search_user_by_uid() failed - No sudo commands found with given criterion\n"));
     }
-    if(ldb_msg == NULL) {
-        DEBUG(0, ("NoUserEntryFound Error. Exit with error message.\n"));
-        goto free_ctx;
-    }
-
-    user_name = ldb_msg_find_attr_as_string(ldb_msg, SYSDB_NAME, NULL);
-    user_id = ldb_msg_find_attr_as_uint64(ldb_msg, SYSDB_UIDNUM, 0);
-    ret =  search_sudo_rules(sudocli, sysdblist[i],sysdblist[i]->domain, "tom",user_id,msg);
-    if(ret != EOK){
-        DEBUG(0, ("Error in rule"));
-    }
-
-    free_ctx:
     talloc_zfree(tmpctx);
-    /////////////////////
 
-
-    talloc_set_destructor((TALLOC_CTX *)sudocli, sudo_client_destructor);
-
-    DEBUG(4, ("Got string [%s]\n", msg->cwd));
-
-    /* reply that all is ok */
+    /*
+     * TODO: Evaluate the list of non eliminated sudo rules and make necessary
+     * changed in command array and env table with result
+     *
+     *
+     *reply that everything is ok
+     */
     reply = dbus_message_new_method_return(message);
     if (!reply) {
         DEBUG(0, ("Dbus Out of memory!\n"));
         return SSS_SUDO_RESPONDER_REPLY_ERR;
     }
 
-    command_size = msg->command_count;
-    dbret = dbus_message_append_args(reply,
-                                     DBUS_TYPE_UINT32, &header,
-                                     DBUS_TYPE_STRING,&result,
-                                     DBUS_TYPE_INVALID);
-    if (!dbret) {
-        DEBUG(0, ("Failed to build sudo dbus reply\n"));
-        dbus_message_unref(reply);
-        sbus_disconnect(conn);
-        return SSS_SUDO_RESPONDER_REPLY_ERR;
+    ret = format_sudo_result_reply(sudocli,
+                                   &reply,
+                                   msg,
+                                   result);
+    if (ret != SSS_SUDO_RESPONDER_SUCCESS) {
+        DEBUG(0, ("Dbus reply failed with error state %d\n",ret));
+        /* TODO: Do the error recovery method
+         * dbus_message_unref(reply);
+         * sbus_disconnect(conn);
+         *
+         * */
     }
 
-    dbus_message_iter_init_append(reply, &msg_iter);
 
-    if(!dbus_message_iter_open_container(&msg_iter,
-                                         DBUS_TYPE_ARRAY,
-                                         "s",
-                                         &subItem)) {
-        fprintf(stderr, "Out Of Memory!\n");
-        return SSS_SUDO_RESPONDER_REPLY_ERR;
-    }
-
-    for(command_array = msg->command ; command_size-- ; command_array++) {
-
-        if (!dbus_message_iter_append_basic(&subItem,
-                                            DBUS_TYPE_STRING,
-                                            command_array)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            return SSS_SUDO_RESPONDER_REPLY_ERR;
-        }
-    }
-
-    if (!dbus_message_iter_close_container(&msg_iter,&subItem)) {
-        fprintf(stderr, "Out Of Memory!\n");
-        return SSS_SUDO_RESPONDER_REPLY_ERR;
-    }
-
-    if(dbus_dhash_to_msg_iter(&env_table,&msg_iter) != SSS_SBUS_CONV_SUCCESS){
-        fprintf(stderr,"fatal: env message framing failed.");
-        return SSS_SUDO_RESPONDER_DHASH_ERR;
-    }
 
     /* send reply back */
     sbus_conn_send_reply(conn, reply);
     dbus_message_unref(reply);
 
     sudocli->initialized = true;
-    free(result);
     return EOK;
 }
 
@@ -722,7 +881,7 @@ static int sudo_client_init(struct sbus_connection *conn, void *data)
     /* hang off this memory to the connection so that when the connection
      * is freed we can potentially call a destructor */
 
-    sudocli = talloc(conn, struct sudo_client);
+    sudocli = talloc_zero(conn, struct sudo_client);
     if (!sudocli) {
         DEBUG(0,("Out of memory?!\n"));
         talloc_zfree(conn);
@@ -746,7 +905,6 @@ static int sudo_client_init(struct sbus_connection *conn, void *data)
     /* Attach the client context to the connection context, so that it is
      * always available when we need to manage the connection. */
     sbus_conn_set_private_data(conn, sudocli);
-
     return EOK;
 }
 static void sudo_dp_reconnect_init(struct sbus_connection *conn, int status, void *pvt)

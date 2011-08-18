@@ -127,6 +127,9 @@ struct sss_sudo_msg_contents
 
     /* Clients pid */
     int cli_pid;
+
+    hash_table_t *settings_table;
+    hash_table_t *env_table;
 };
 
 #define  SSS_SUDO_ITEM_RUSER                "runas_user"

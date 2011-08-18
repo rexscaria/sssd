@@ -369,13 +369,6 @@ libsss_util_la_LIBADD = \
     $(SSSD_LIBS) \
     libsss_crypt.la \
     libsss_debug.la
-    
-noinst_LTLIBRARIES += libsss_list.la
-libsss_list_la_SOURCES = \
-    src/list_sss/list_sss.c
-libsss_list_la_LIBADD = \
-	$(TALLOC_LIBS) \
-	libsss_debug.la
 
 ####################
 # Program Binaries #
@@ -418,7 +411,6 @@ sssd_sudo_LDADD = \
     $(SSSD_LIBS) \
     $(LDB_LIBS) \
     libsss_util.la \
-    libsss_list.la \
     $(DBUS_LIBS) \
     $(DHASH_LIBS)
 sssd_sudo_LDFLAGS = \
