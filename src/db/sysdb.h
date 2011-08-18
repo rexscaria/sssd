@@ -59,6 +59,7 @@
 #define SYSDB_SUDO_NOT_BEFORE_ATTR "sudoNotBefore"
 #define SYSDB_SUDO_NOT_AFTER_ATTR "sudoNotAfter"
 #define SYSDB_SUDO_ORDER_ATTR "sudoOrder"
+#define SYSDB_SUDO_DEFAULT_RULE "defaults"
 
 #define SYSDB_SUDO_USER_MATCH_ATTR "("SYSDB_SUDO_USER_ATTR"=%s)"
 

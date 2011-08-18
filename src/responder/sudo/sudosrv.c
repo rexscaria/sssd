@@ -378,7 +378,7 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
                           const char * user_name,
                           uid_t user_id,
                           struct sss_sudo_msg_contents *sudo_msg,
-                          struct sss_sudorule_list **sudorule_list) {
+                          struct sss_valid_sudorules **valid_sudorules_out) {
     TALLOC_CTX *tmp_mem_ctx;
     const char *attrs[] = { SYSDB_SUDO_CONTAINER_ATTR,
                             SYSDB_SUDO_USER_ATTR,
@@ -391,14 +391,20 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
                             SYSDB_SUDO_NOT_AFTER_ATTR,
                             SYSDB_SUDO_ORDER_ATTR,
                             NULL };
+    const char *attrs_default[] = { SYSDB_SUDO_CONTAINER_ATTR,
+                                    SYSDB_SUDO_OPTION_ATTR,
+                                    NULL };
     char *filter = NULL, *host = NULL;
+    char * filter_default = NULL;
     struct ldb_message **sudo_rules_msgs;
+    struct ldb_message **default_rule;
     struct ldb_result *res;
     int ret;
-    size_t count;
+    size_t count = 0, count_default = 0;
     int i = 0;
     TALLOC_CTX *listctx;
     struct sss_sudorule_list *list_head =NULL, *tmp_node;
+    struct sss_valid_sudorules * valid_rules;
 
     DEBUG(0,("in Sudo rule elimination\n"));
     tmp_mem_ctx = talloc_new(NULL);
@@ -406,6 +412,7 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
         return ENOMEM;
     }
 
+    valid_rules = talloc_zero(tmp_mem_ctx,struct sss_valid_sudorules);
     ret  = sysdb_get_groups_by_user(tmp_mem_ctx,
                                     sysdb,
                                     domain,
@@ -425,12 +432,20 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
     }
     DEBUG(0, ("Host - %s\n",host));
 
-    ret = prepare_filter(tmp_mem_ctx,user_name,user_id,host,res,&filter);
-    if (ret!=EOK) {
-        DEBUG(0, ("Failed to build filter - %s\n",filter));
+    filter_default = talloc_asprintf(tmp_mem_ctx,SYSDB_SUDO_CONTAINER_ATTR"="SYSDB_SUDO_DEFAULT_RULE);
+    if (!filter_default) {
+        DEBUG(0, ("Failed to build filter for default rule \n"));
+        ret = ENOMEM;
         goto done;
     }
-    DEBUG(0,("Filter - %s\n",filter));
+
+    ret = prepare_filter(tmp_mem_ctx,user_name,user_id,host,res,&filter);
+    if (ret!=EOK) {
+        DEBUG(0, ("Failed to build filter(Non default) - %s\n",filter));
+        goto done;
+    }
+    DEBUG(0,("Filter(Non Default) - %s\n",filter));
+    DEBUG(0,("Filter(Default) - %s\n",filter_default));
 
     ret = sysdb_search_sudo_rules(tmp_mem_ctx,
                                   sysdb,
@@ -439,19 +454,38 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
                                   attrs,
                                   &count,
                                   &sudo_rules_msgs);
-    if (ret) {
+    if (ret != EOK) {
         if (ret == ENOENT) {
-            ret = EOK;
+            DEBUG(0, ("Failed to get the rules - Deny the command execution\n"));
         }
         goto done;
     }
-
-    DEBUG(0, ("Found %d sudo rule entries!\n\n", count));
 
     if (count == 0) {
         ret = EOK;
         goto done;
     }
+
+    ret = sysdb_search_sudo_rules(tmp_mem_ctx,
+                                  sysdb,
+                                  domain,
+                                  filter_default,
+                                  attrs_default,
+                                  &count_default,
+                                  &default_rule);
+    if (ret) {
+        DEBUG(0, ("Failed to get the default rule - Not fatal\n", count));
+        valid_rules->default_rule = NULL;
+    }
+    else {
+        valid_rules->default_rule = *default_rule;
+    }
+    if(count_default > 1){
+        DEBUG(0, ("More than one default rule found - Unexpected behavior( fatal )\n", count));
+        ret = EIO;
+        goto done;
+    }
+    DEBUG(0, ("Found %d sudo rules and %d default rules entries!\n\n", count, count_default));
 
     qsort(sudo_rules_msgs,count,sizeof(struct ldb_message *), (__compar_fn_t)compare_sudo_order);
 
@@ -506,10 +540,13 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
     }
 
     setenv("_SSS_LOOPS", "NO", 0);
+    talloc_steal(sudocli,listctx);
+
+    valid_rules->non_defaults = list_head;
+    *valid_sudorules_out = valid_rules;
 
     done:
-    talloc_steal(sudocli,listctx);
-    *sudorule_list = list_head;
+
 
     talloc_zfree(tmp_mem_ctx);
     return ret;
@@ -525,7 +562,7 @@ errno_t find_sudorules_for_user_in_db_list(TALLOC_CTX * ctx,
     uid_t user_id;
     int i = 0,ret;
     const char * user_name;
-    struct sss_sudorule_list * res_sudorule_list;
+    struct sss_valid_sudorules * res_sudorules_valid;
 
     sysdblist = sudocli->sudoctx->rctx->db_list->dbs;
     no_ldbs = sudocli->sudoctx->rctx->db_list->num_dbs;
@@ -568,7 +605,7 @@ errno_t find_sudorules_for_user_in_db_list(TALLOC_CTX * ctx,
                              "tom"/*user_name*/,
                              user_id,
                              sudo_msg,
-                             &res_sudorule_list);
+                             &res_sudorules_valid);
     if(ret != EOK){
         DEBUG(0, ("Error in rule"));
     }

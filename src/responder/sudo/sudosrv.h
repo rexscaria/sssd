@@ -107,6 +107,12 @@ struct sss_sudorule_list
     struct sss_sudorule_list *prev;
 } ;
 
+struct sss_valid_sudorules
+{
+    struct ldb_message *default_rule;
+    struct sss_sudorule_list *non_defaults;
+};
+
 enum error_types_sudo_responder{
 
     SSS_SUDO_RESPONDER_SUCCESS = 0x01,
