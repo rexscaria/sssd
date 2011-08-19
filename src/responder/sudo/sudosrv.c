@@ -168,15 +168,16 @@ errno_t eliminate_sudorules_by_sudocmd(TALLOC_CTX * mem_ctx,
     char * tmpcmd, *space;
     struct sudo_cmd_ctx * sudo_cmnd;
 
+    DEBUG(0,("\n\n\nIn rule elimination based on commands\n"));
     sudo_cmnd = talloc_zero(mem_ctx,struct sudo_cmd_ctx);
     if(!sudo_cmnd){
-        DEBUG(0,("Failed to allocate command structure."));
+        DEBUG(0,("Failed to allocate command structure.\n"));
         return ENOMEM;
     }
     current_node = list_head;
     while(current_node != NULL) {
 
-        DEBUG(0, ("--sudoOrder: %f\n",
+        DEBUG(0, ("\n--sudoOrder: %f\n",
                 ldb_msg_find_attr_as_double(current_node->data,
                                             SYSDB_SUDO_ORDER_ATTR,
                                             0.0)));
@@ -242,6 +243,7 @@ errno_t eliminate_sudorules_by_sudocmd(TALLOC_CTX * mem_ctx,
         current_node =  tmp_node;
     }
     *head = list_head;
+    DEBUG(0,("Rule elimination based on commands is over\n"));
     return EOK;
 }
 
@@ -257,11 +259,12 @@ errno_t eliminate_sudorules_by_sudohosts(TALLOC_CTX * mem_ctx,
     int flag =0;
     int i=0;
     char * tmphost;
+    DEBUG(0,("\n\n\nIn rule elimination based on hosts\n"));
 
     current_node = list_head;
     while(current_node != NULL) {
 
-        DEBUG(0, ("\n\n\n\n--sudoOrder: %f\n",
+        DEBUG(0, ("\n--sudoOrder: %f\n",
                 ldb_msg_find_attr_as_double((struct ldb_message *)current_node->data,
                                             SYSDB_SUDO_ORDER_ATTR,
                                             0.0)));
@@ -314,6 +317,7 @@ errno_t eliminate_sudorules_by_sudohosts(TALLOC_CTX * mem_ctx,
         current_node =  tmp_node;
     }
     *head = list_head;
+    DEBUG(0,("Rule elimination based on hosts over\n"));
     return EOK;
 }
 
@@ -329,9 +333,15 @@ errno_t eliminate_sudorules_by_sudouser_netgroups(TALLOC_CTX * mem_ctx,
     int i=0, valid_user_count = 0;
     char * tmpuser;
 
-
+    DEBUG(0,("\n\n\nIn rule elimination based on user net groups\n"));
     current_node = list_head;
     while(current_node != NULL) {
+        DEBUG(0, ("\n--sudoOrder: %f\n",
+                ldb_msg_find_attr_as_double((struct ldb_message *)current_node->data,
+                                            SYSDB_SUDO_ORDER_ATTR,
+                                            0.0)));
+        DEBUG(0, ("--dn: %s----\n",
+                ldb_dn_get_linearized(((struct ldb_message *)current_node->data)->dn)));
         el = ldb_msg_find_element((struct ldb_message *)current_node->data,
                                   SYSDB_SUDO_USER_ATTR);
 
@@ -342,6 +352,17 @@ errno_t eliminate_sudorules_by_sudouser_netgroups(TALLOC_CTX * mem_ctx,
             continue;
         }
         flag = 0;
+        /*
+         * TODO: The elimination of sudo rules based on hosts an user net groups depends
+         *  on the innetgr(). This makes the code less efficient since we are calling the
+         *  sssd in loop. Find a good solution to resolve the membserNisnetgroup attribute.
+         *
+         *  CAUTION: Most of the contents of the netgroup is stored on LDAP. But they leave
+         *  a generic memberNisNetgroup entry in the LDAP entry, so that if the local machine
+         *  chooses, they can add an "override" locally. So there's no guarantee that
+         *  memberNisNetgroup maps to something else on the LDAP server.
+         *
+         */
 
         for (i = 0; i < el->num_values; i++) {
 
@@ -368,6 +389,7 @@ errno_t eliminate_sudorules_by_sudouser_netgroups(TALLOC_CTX * mem_ctx,
         current_node =  tmp_node;
     }
     *head = list_head;
+    DEBUG(0,("Rule elimination based on user net groups is over\n"));
     return EOK;
 }
 
@@ -512,6 +534,14 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
         ret = EIO;
         goto done;
     }
+    if(list_head == NULL){
+        /* No more rules left. Return err */
+        DEBUG(0, ("All rules are eliminated based on sudo commands\n"));
+        ret = EOK;
+        valid_rules->non_defaults = NULL;
+        *valid_sudorules_out = valid_rules;
+        goto done;
+    }
 
     ret = unsetenv("_SSS_LOOPS");
     if (ret != EOK) {
@@ -528,6 +558,14 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
         ret = EIO;
         goto done;
     }
+    if(list_head == NULL){
+        /* No more rules left. Return err */
+        DEBUG(0, ("All rules are eliminated based on sudo Hosts\n"));
+        ret = EOK;
+        valid_rules->non_defaults = NULL;
+        *valid_sudorules_out = valid_rules;
+        goto done;
+    }
 
     ret = eliminate_sudorules_by_sudouser_netgroups(tmp_mem_ctx,
                                                     &list_head,
@@ -538,6 +576,14 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
         ret = EIO;
         goto done;
     }
+    if(list_head == NULL){
+        /* No more rules left. Return err */
+        DEBUG(0, ("All rules are eliminated based on sudo users\n"));
+        ret = EOK;
+        valid_rules->non_defaults = NULL;
+        *valid_sudorules_out = valid_rules;
+        goto done;
+    }
 
     setenv("_SSS_LOOPS", "NO", 0);
     talloc_steal(sudocli,listctx);
@@ -546,7 +592,6 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
     *valid_sudorules_out = valid_rules;
 
     done:
-
 
     talloc_zfree(tmp_mem_ctx);
     return ret;
@@ -588,7 +633,7 @@ errno_t find_sudorules_for_user_in_db_list(TALLOC_CTX * ctx,
         break;
 
     }
-    if(ldb_msg == NULL) {
+    if(ret !=EOK || ldb_msg == NULL) {
         DEBUG(0, ("NoUserEntryFound Error. Exit with error message.\n"));
         return ENOENT;
     }
@@ -607,8 +652,15 @@ errno_t find_sudorules_for_user_in_db_list(TALLOC_CTX * ctx,
                              sudo_msg,
                              &res_sudorules_valid);
     if(ret != EOK){
-        DEBUG(0, ("Error in rule"));
+        DEBUG(0, ("Error in rule search"));
+        return ret;
     }
+    if(res_sudorules_valid == NULL || res_sudorules_valid->non_defaults == NULL){
+        /* All the rules are eliminated and nothing left for evaluation */
+        DEBUG(0, ("No rule left for evaluation\n"));
+    }
+    /* Do the evaluation now */
+
 
     return ret;
 
@@ -808,11 +860,9 @@ errno_t format_sudo_result_reply(TALLOC_CTX * mem_ctx,
 static int sudo_query_validation(DBusMessage *message, struct sbus_connection *conn)
 {
     struct sudo_client *sudocli;
-    DBusMessage *reply;
-    DBusError dbus_error;
+    DBusMessage *reply = NULL;
     int ret = -1;
     void *data;
-
     char * result;
     struct sss_sudo_msg_contents * msg;
 
@@ -824,7 +874,8 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
     if (!sudocli) {
         DEBUG(0, ("Connection holds no valid init data exists \n",
                 SSS_SUDO_RESPONDER_CONNECTION_ERR));
-        return SSS_SUDO_RESPONDER_CONNECTION_ERR;
+        ret = SSS_SUDO_RESPONDER_CONNECTION_ERR;
+        goto done;
     }
     result = talloc_strdup(sudocli,"PASS");
 
@@ -832,30 +883,31 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
     DEBUG(4, ("Cancel SUDO client timeout [%p]\n", sudocli->timeout));
     talloc_zfree(sudocli->timeout);
 
-    dbus_error_init(&dbus_error);
-
     ret = sudo_query_parse(sudocli,
                            message,
                            &msg);
     if(ret != SSS_SUDO_RESPONDER_SUCCESS){
-        DEBUG(0,( "message parser for sudo returned &d\n",ret));
-        /* TODO: Do the error recovery method */
-
+        DEBUG(0,( "message parser for sudo returned %d\n",ret));
+        ret = SSS_SUDO_RESPONDER_PARSE_ERR;
+        goto done;
     }
     DEBUG(0, ("-----------Message successfully Parsed---------\n"));
     talloc_set_destructor(sudocli, sudo_client_destructor);
 
     tmpctx = talloc_new(NULL);
     if (!tmpctx) {
-        return ENOMEM;
+        DEBUG(0, ("Failed create a context for sudo rule processing\n"));
+        ret = ENOMEM;
+        goto done;
     }
-
 
     ret = find_sudorules_for_user_in_db_list(tmpctx,sudocli,msg);
     if(ret != EOK ){
         DEBUG(0, ("sysdb_search_user_by_uid() failed - No sudo commands found with given criterion\n"));
+        ret = SSS_SUDO_RESPONDER_PARSE_ERR;
+        goto done;
     }
-    talloc_zfree(tmpctx);
+
 
     /*
      * TODO: Evaluate the list of non eliminated sudo rules and make necessary
@@ -867,7 +919,8 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
     reply = dbus_message_new_method_return(message);
     if (!reply) {
         DEBUG(0, ("Dbus Out of memory!\n"));
-        return SSS_SUDO_RESPONDER_REPLY_ERR;
+        ret = SSS_SUDO_RESPONDER_REPLY_ERR;
+        goto done;
     }
 
     ret = format_sudo_result_reply(sudocli,
@@ -876,21 +929,27 @@ static int sudo_query_validation(DBusMessage *message, struct sbus_connection *c
                                    result);
     if (ret != SSS_SUDO_RESPONDER_SUCCESS) {
         DEBUG(0, ("Dbus reply failed with error state %d\n",ret));
-        /* TODO: Do the error recovery method
-         * dbus_message_unref(reply);
-         * sbus_disconnect(conn);
-         *
-         * */
+        ret = SSS_SUDO_RESPONDER_REPLY_ERR;
+        goto done;
     }
 
 
 
     /* send reply back */
     sbus_conn_send_reply(conn, reply);
-    dbus_message_unref(reply);
+    ret = EOK;
+
+    done:
+    talloc_zfree(tmpctx);
+    /*if(message)
+        dbus_message_unref(message);
+    if(reply)
+        dbus_message_unref(reply);
 
     sudocli->initialized = true;
-    return EOK;
+    if(!conn)
+        sbus_disconnect(conn);*/
+    return ret;
 }
 
 static void init_timeout(struct tevent_context *ev,
