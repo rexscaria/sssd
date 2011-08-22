@@ -405,6 +405,7 @@ sssd_pam_LDADD = \
 
 sssd_sudo_SOURCES = \
     src/responder/sudo/sudosrv.c \
+    src/responder/sudo/match_sudo_cmnd.c \
     $(SSSD_RESPONDER_OBJ)
 sssd_sudo_LDADD = \
     $(TDB_LIBS) \
@@ -780,8 +781,7 @@ dist_noinst_DATA += \
 libsss_sudoplugin_LTLIBRARIES = libsss_sudoplugin.la
 libsss_sudoplugin_la_SOURCES = \
     src/sss_client/sudo_plugin/sss_sudoplugin.c \
-    src/sss_client/sudo_plugin/sss_sudo_cli.h \
-    src/sss_client/sudo_plugin/missing.h
+    src/sss_client/sudo_plugin/sss_sudo_cli.h
 
 libsss_sudoplugin_la_LDFLAGS = \
     -module \

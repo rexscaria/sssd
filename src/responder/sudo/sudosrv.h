@@ -44,15 +44,16 @@
 #define SUDO_DP_PATH      "/org/freedesktop/sssd/sudo/dataprovider"
 #define SUDO_DP_METHOD_QUERY "queryDPService"
 
-
-#define SSS_SUDO_RESPONDER_HEADER 0x43256
-
 #define SSS_SUDO_SBUS_SERVICE_VERSION 0x0001
 #define SSS_SUDO_SBUS_SERVICE_NAME "sudo"
 
 #define CONFDB_SERVICE_RECON_RETRIES "reconnection_retries"
 #define CONFDB_SUDO_ENTRY_NEG_TIMEOUT "entry_negative_timeout"
 #define CONFDB_SUDO_ID_TIMEOUT "sudo_id_timeout"
+
+#define SUDO_ALLOW_ACCESS 1
+#define SUDO_DENY_ACCESS 0
+
 
 static int sudo_query_validation(DBusMessage *message, struct sbus_connection *conn);
 struct sbus_method sudo_methods[] = {
@@ -76,6 +77,29 @@ struct sbus_interface sudo_dp_interface = {
                                            NULL/*sudo_dp_methods*/,
                                            NULL
 };
+
+int command_args_match(char *sudoers_cmnd,
+                       char *sudoers_args,
+                       char *user_cmnd,
+                       char *user_args);
+
+int command_matches_fnmatch(TALLOC_CTX* memctx,
+                            char *sudoers_cmnd,
+                            char *sudoers_args,
+                            char *user_cmnd,
+                            char *user_args,
+                            char ** safe_cmnd,
+                            char ** safe_args);
+
+int command_matches(TALLOC_CTX * memctx,
+                    char *sudoers_cmnd,
+                    char *sudoers_args,
+                    char *user_cmnd,
+                    char *user_args,
+                    char ** safe_cmnd,
+                    char ** safe_args);
+
+
 
 struct sudo_ctx {
     struct resp_ctx *rctx;
@@ -107,11 +131,48 @@ struct sss_sudorule_list
     struct sss_sudorule_list *prev;
 } ;
 
+struct sss_sudo_command_list
+{
+    struct ldb_val *values;
+
+    struct sss_sudo_command_list *next;
+    struct sss_sudo_command_list *prev;
+} ;
+
 struct sss_valid_sudorules
 {
     struct ldb_message *default_rule;
     struct sss_sudorule_list *non_defaults;
 };
+
+#define FILTER_APPEND_CHECK(filter_in,filter_out, append_str, str_arg)          \
+        do {                                                                    \
+            (filter_out) = talloc_asprintf_append((filter_in), (append_str), (str_arg)); \
+            if (!(filter_out)) {                                                  \
+                DEBUG(0, ("Failed to build filter\n"));                         \
+                ret = ENOMEM;                                                   \
+                goto done;                                                      \
+            }                                                                   \
+        }while(0);
+
+
+#define BOOL_STR_TO_INT(bool_str) (!strcmp((bool_str),"TRUE"))?1 : 0 ;
+
+#define CHECK_KEY_AND_SET_MESSAGE_STR(key,str_key,var, value)               \
+        do {                                                \
+            if( !strcmp((key),(str_key))){                 \
+                (var) =  (value);                   \
+            }                                           \
+        } while (0);
+
+#define CHECK_KEY_AND_SET_MESSAGE_INT(key,str_key,var, value)               \
+        do {                                                \
+            if( !strcmp((key),(str_key))){                 \
+                (var) = BOOL_STR_TO_INT(value);     \
+            }                                           \
+        } while (0);
+
+
 
 enum error_types_sudo_responder{
 

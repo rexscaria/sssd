@@ -31,8 +31,6 @@
 
 /*
  * Define to the version of sudo package
- * This declaration is to be removed and
- * it is to be imported from config.h
  */
 #define SUDO_PACKAGE_STRING "sudo 1.8.1"
 
@@ -80,7 +78,6 @@
 #include <pwd.h>
 #include <stdarg.h>
 
-#include "missing.h"
 #include <sudo_plugin.h>
 
 #include <security/pam_appl.h>
@@ -225,9 +222,7 @@ int policy_open(unsigned int version,
                 char * const user_env[])
 {
     char * const *ui;
-    struct passwd *pw;
     const char *runas_user = NULL;
-    struct group *gr;
     const char *runas_group = NULL;
 
 
@@ -426,20 +421,37 @@ int policy_open(unsigned int version,
 
 
 
-    if (runas_user != NULL) {
-        if ((pw = getpwnam(runas_user)) == NULL) {
+    /*
+     * No need to check the user or group status here.
+     * TODO: Sgallagh, Pls conform this. :)
+     *
+     *
+     *  if (runas_user != NULL) {
+        if(runas_user[0] == '#'){
+            if ((pw = getpwuid(atoi(runas_user+1))) == NULL) {
+                sudo_log(SUDO_CONV_ERROR_MSG, "unknown user %s\n", runas_user);
+                return 0;
+            }
+        }
+        else if ((pw = getpwnam(runas_user)) == NULL) {
             sudo_log(SUDO_CONV_ERROR_MSG, "unknown user %s\n", runas_user);
             return 0;
         }
         runas_uid = pw->pw_uid;
     }
     if (runas_group != NULL) {
-        if ((gr = getgrnam(runas_group)) == NULL) {
+        if(runas_group[0] == '#'){
+            if ((gr = getgrgid(atoi(runas_group+1))) == NULL) {
+                sudo_log(SUDO_CONV_ERROR_MSG, "unknown group %s\n", runas_user);
+                return 0;
+            }
+        }
+        else if ((gr = getgrnam(runas_group)) == NULL) {
             sudo_log(SUDO_CONV_ERROR_MSG, "unknown group %s\n", runas_group);
             return 0;
         }
         runas_gid = gr->gr_gid;
-    }
+    }*/
 
     /* fill Plugin state. */
     plugin_state.envp = user_env;
@@ -820,31 +832,6 @@ int create_settings_hash_table(hash_table_t ** table_out) {
     return HASH_SUCCESS;
 }
 
-
-
-
-int validate_message_content( void )
-{
-    if(!msg.cwd && !*msg.cwd) {
-        fprintf(stderr,"fatal: Current working directory is invalid.");
-        return SSS_SUDO_VALIDATION_ERR;
-    }
-    if(!msg.tty && !*msg.tty) {
-        fprintf(stderr,"fatal: Client terminal is invalid.");
-        return SSS_SUDO_VALIDATION_ERR;
-    }
-    if(!msg.user_env && !*msg.user_env) {
-        fprintf(stderr,"fatal: User environment is invalid.");
-        return SSS_SUDO_VALIDATION_ERR;
-    }
-    if(!msg.command && !*msg.command) {
-        fprintf(stderr,"fatal: Command to be executed is invalid.");
-        return SSS_SUDO_VALIDATION_ERR;
-    }
-
-    return SSS_SUDO_VALIDATION_SUCCESS;
-}
-
 void free_connection(DBusConnection  *conn,
                      DBusError       *err,
                      hash_table_t   *settings_table,
@@ -869,17 +856,208 @@ void free_connection(DBusConnection  *conn,
 }
 
 
-int sss_sudo_make_request(struct sss_cli_req_data *rd,
-                          uint8_t **repbuf,
-                          size_t *replen,
-                          int *errnop)
+////////////////////
+
+int get_reply_message(DBusConnection* conn,
+                          DBusError *err,
+                          DBusMessage *dbus_msg,
+                          DBusMessage *dbus_reply,
+                          struct sudo_result_contents * sudo_result,
+                          DBusMessageIter * msg_iter){
+
+int ret = -1,count =0;
+ret = dbus_message_get_args(dbus_reply,
+                               err,
+                                DBUS_TYPE_UINT32,&sudo_result->header,
+                                DBUS_TYPE_STRING,&sudo_result->result_str,
+                                DBUS_TYPE_ARRAY,DBUS_TYPE_STRING,&sudo_result->command_array,
+                                &sudo_result->command_array_out_size,
+                                DBUS_TYPE_INVALID);
+    if (!ret) {
+        fprintf (stderr,"Failed to parse reply, killing connection\n");
+        free_connection(conn,&err,(hash_table_t *)NULL,dbus_msg,dbus_reply);
+        return SSS_SUDO_REPLY_ERR;
+    }
+
+    if(sudo_result->header != SSS_SUDO_REPLY_HEADER){
+        sudo_log(SUDO_CONV_ERROR_MSG, "Reply header mismatch - Detected unreliable packet. Access denied\n");
+        return SSS_SUDO_REPLY_ERR;
+    }
+
+    fprintf(stdout,"----------Reply--------:\n"
+            "Header : %d \nResult status : %s\n"
+            "Command : ", sudo_result->header,sudo_result->result_str);
+
+    for(count =0;count< sudo_result->command_array_out_size;count++){
+        printf("%s ", sudo_result->command_array[count]);
+    }
+        if (!dbus_message_iter_init(dbus_reply, msg_iter)) {
+            fprintf(stderr, "Reply iterator failed!\n");
+            free_connection(conn,err,(hash_table_t *)NULL,dbus_msg,dbus_reply);
+            return SSS_SUDO_REPLY_ERR;
+        }
+
+            printf("\n");
+            dbus_message_iter_next(msg_iter);
+            dbus_message_iter_next(msg_iter);
+            dbus_message_iter_next(msg_iter);
+
+                if(dbus_msg_iter_to_dhash(msg_iter, &sudo_result->env_table_out) != SSS_SBUS_CONV_SUCCESS){
+                    fprintf(stderr, "env message iterator corrupted!\n");
+                    free_connection(conn,err,(hash_table_t *)NULL,dbus_msg,dbus_reply);
+                    return SSS_SUDO_REPLY_ERR;
+                }
+    printf("---------Reply End----------\n");
+
+    return SSS_SUDO_REPLY_OK;
+
+}
+///////////////////////
+
+
+int validate_message_content( void )
+{
+    if(!msg.cwd && !*msg.cwd) {
+        fprintf(stderr,"fatal: Current working directory is invalid.");
+        return SSS_SUDO_VALIDATION_ERR;
+    }
+    if(!msg.tty && !*msg.tty) {
+        fprintf(stderr,"fatal: Client terminal is invalid.");
+        return SSS_SUDO_VALIDATION_ERR;
+    }
+    if(!msg.user_env && !*msg.user_env) {
+        fprintf(stderr,"fatal: User environment is invalid.");
+        return SSS_SUDO_VALIDATION_ERR;
+    }
+    if(!msg.command && !*msg.command) {
+        fprintf(stderr,"fatal: Command to be executed is invalid.");
+        return SSS_SUDO_VALIDATION_ERR;
+    }
+
+    return SSS_SUDO_VALIDATION_SUCCESS;
+}
+
+
+
+int frame_sudo_message(DBusConnection* conn,
+                       DBusError *err,
+                       DBusMessage *dbus_msg,
+                       struct sss_sudo_msg_contents * sudo_msg,
+                       DBusMessageIter * msg_iter){
+
+    int ret = -1,count =0;
+    DBusMessageIter sub_iter;
+    char ** command_array;
+
+
+        if(!dbus_message_iter_open_container(msg_iter,
+                                             DBUS_TYPE_STRUCT,
+                                             NULL,
+                                             &sub_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+            return SSS_SUDO_MESSAGE_ERR;
+        }
+                if (!dbus_message_iter_append_basic(&sub_iter,
+                                                    DBUS_TYPE_UINT32,
+                                                    &sudo_msg->userid)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+                    return SSS_SUDO_MESSAGE_ERR;
+                }
+
+                if (!dbus_message_iter_append_basic(&sub_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &sudo_msg->cwd)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+                    return SSS_SUDO_MESSAGE_ERR;
+                }
+
+
+
+                if (!dbus_message_iter_append_basic(&sub_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &sudo_msg->tty)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+                    return SSS_SUDO_MESSAGE_ERR;
+                }
+                if (!dbus_message_iter_append_basic(&sub_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    &sudo_msg->fq_command)) {
+                    fprintf(stderr, "Out Of Memory! - at FQ command\n");
+                    free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+                    return SSS_SUDO_MESSAGE_ERR;
+                }
+
+        if (!dbus_message_iter_close_container(msg_iter,&sub_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+            return SSS_SUDO_MESSAGE_ERR;
+        }
+
+            if (!dbus_message_iter_append_basic(msg_iter,
+                                                DBUS_TYPE_UINT32,
+                                                &sudo_msg->command_count)) {
+                fprintf(stderr, "Out Of Memory!\n");
+                free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+                return SSS_SUDO_MESSAGE_ERR;
+            }
+
+        if(!dbus_message_iter_open_container(msg_iter,
+                                             DBUS_TYPE_ARRAY,
+                                             "s",
+                                             &sub_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+            return SSS_SUDO_MESSAGE_ERR;
+        }
+
+            for(command_array = sudo_msg->command ; *command_array != NULL ; command_array++) {
+
+                if (!dbus_message_iter_append_basic(&sub_iter,
+                                                    DBUS_TYPE_STRING,
+                                                    command_array)) {
+                    fprintf(stderr, "Out Of Memory!\n");
+                    free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+                    return SSS_SUDO_MESSAGE_ERR;
+                }
+
+            }
+
+        if (!dbus_message_iter_close_container(msg_iter,&sub_iter)) {
+            fprintf(stderr, "Out Of Memory!\n");
+            free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+            return SSS_SUDO_MESSAGE_ERR;
+        }
+    ////////
+
+        if(dbus_dhash_to_msg_iter(&sudo_msg->settings_table,msg_iter) != SSS_SBUS_CONV_SUCCESS){
+            fprintf(stderr,"fatal: message framing failed.");
+            free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+            return SSS_SUDO_MESSAGE_ERR;
+        }
+
+        if(dbus_dhash_to_msg_iter(&sudo_msg->env_table,msg_iter) != SSS_SBUS_CONV_SUCCESS){
+            fprintf(stderr,"fatal: message framing failed.");
+            free_connection(conn,&err,sudo_msg->settings_table,dbus_msg,(DBusMessage *)NULL);
+        free_connection(NULL,NULL,sudo_msg->env_table,NULL,NULL);
+            return SSS_SUDO_MESSAGE_ERR;
+        }
+
+    return SSS_SUDO_MESSAGE_OK;
+
+}
+
+int sss_sudo_make_request(struct sudo_result_contents ** sudo_result_out)
 {
 
 
     char ** command_array,**ui;
-    char * result_str;
     int err_status,count;
-    dbus_uint32_t status,command_array_out_size;
+    dbus_uint32_t header,command_array_out_size;
+    struct sudo_result_contents * sudo_result = NULL;
 
     DBusConnection* conn;
     DBusError err;
@@ -887,29 +1065,24 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
     DBusMessage* dbus_msg;
     DBusMessage* dbus_reply;
     DBusMessageIter msg_iter;
-    DBusMessageIter sub_iter;
 
-    dbus_bool_t ret=FALSE;
+    dbus_bool_t ret = -1;
 
-    hash_table_t *env_table = NULL;
-    hash_table_t *settings_table = NULL;
-    hash_table_t *env_table_out = NULL;
-
-    fprintf(stdout,"Calling remote method to pack message\n");
+    fprintf(stdout,"Sending message\n");
 
     if(validate_message_content() !=  SSS_SUDO_VALIDATION_SUCCESS) {
         return SSS_SUDO_VALIDATION_ERR;
     }
 
 
-    err_status = create_env_hash_table(msg.user_env,&env_table);
+    err_status = create_env_hash_table(msg.user_env,&msg.env_table);
     if(err_status != HASH_SUCCESS) {
         fprintf(stderr, "ccouldn't create table: %s\n", hash_error_string(err_status));
         return SSS_SUDO_MESSAGE_ERR;
     }
 
 
-    err_status = create_settings_hash_table(&settings_table);
+    err_status = create_settings_hash_table(&msg.settings_table);
     if(err_status != HASH_SUCCESS) {
         fprintf(stderr, "ccouldn't create table: %s\n", hash_error_string(err_status));
         return SSS_SUDO_MESSAGE_ERR;
@@ -932,13 +1105,13 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
 
 
     /* create a new method call and check for errors */
-    dbus_msg = dbus_message_new_method_call( NULL, 		        /*    target    */
+    dbus_msg = dbus_message_new_method_call( NULL, 		               /*    target    */
                                              SUDO_SERVER_PATH,        /*    object    */
                                              SUDO_SERVER_INTERFACE,  /*   interface  */
                                              SUDO_METHOD_QUERY);    /*  method name */
     if (NULL == dbus_msg) {
         fprintf(stderr, "Message Null\n");
-        free_connection(conn,&err,settings_table,(DBusMessage *)NULL,(DBusMessage *)NULL);
+        free_connection(conn,&err,msg.settings_table,(DBusMessage *)NULL,(DBusMessage *)NULL);
         return SSS_SUDO_MESSAGE_ERR;
     }
 
@@ -948,111 +1121,24 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
     dbus_message_iter_init_append(dbus_msg, &msg_iter);
     if(dbus_error_is_set(&err)){
         fprintf(stderr, "Failed to initialize the iterator.\n");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
+        free_connection(conn,&err,msg.settings_table,dbus_msg,(DBusMessage *)NULL);
         return SSS_SUDO_MESSAGE_ERR;
     }
 
-
-    if(!dbus_message_iter_open_container(&msg_iter,
-                                         DBUS_TYPE_STRUCT,
-                                         NULL,
-                                         &sub_iter)) {
-        fprintf(stderr, "Out Of Memory!\n");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
+    ret = frame_sudo_message(conn,
+                             &err,
+                             dbus_msg,
+                             &msg,
+                             &msg_iter);
+    if( ret != SSS_SUDO_MESSAGE_OK){
+        sudo_log(SUDO_CONV_ERROR_MSG,"Failed to frame the message to sssd -  Fatal (Access denied)\n");
+        free_connection(conn,&err,(hash_table_t *)NULL,dbus_msg,(DBusMessage *)NULL);
         return SSS_SUDO_MESSAGE_ERR;
     }
-    if (!dbus_message_iter_append_basic(&sub_iter,
-                                        DBUS_TYPE_UINT32,
-                                        &msg.userid)) {
-        fprintf(stderr, "Out Of Memory!\n");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-        return SSS_SUDO_MESSAGE_ERR;
-    }
-
-    if (!dbus_message_iter_append_basic(&sub_iter,
-                                        DBUS_TYPE_STRING,
-                                        &msg.cwd)) {
-        fprintf(stderr, "Out Of Memory!\n");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-        return SSS_SUDO_MESSAGE_ERR;
-    }
-
-
-
-    if (!dbus_message_iter_append_basic(&sub_iter,
-                                        DBUS_TYPE_STRING,
-                                        &msg.tty)) {
-        fprintf(stderr, "Out Of Memory!\n");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-        return SSS_SUDO_MESSAGE_ERR;
-    }
-    if (!dbus_message_iter_append_basic(&sub_iter,
-                                        DBUS_TYPE_STRING,
-                                        &msg.fq_command)) {
-        fprintf(stderr, "Out Of Memory! - at FQ command\n");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-        return SSS_SUDO_MESSAGE_ERR;
-    }
-
-    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
-        fprintf(stderr, "Out Of Memory!\n");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-        return SSS_SUDO_MESSAGE_ERR;
-    }
-
-    if (!dbus_message_iter_append_basic(&msg_iter,
-                                        DBUS_TYPE_UINT32,
-                                        &msg.command_count)) {
-        fprintf(stderr, "Out Of Memory!\n");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-        return SSS_SUDO_MESSAGE_ERR;
-    }
-
-    if(!dbus_message_iter_open_container(&msg_iter,
-                                         DBUS_TYPE_ARRAY,
-                                         "s",
-                                         &sub_iter)) {
-        fprintf(stderr, "Out Of Memory!\n");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-        return SSS_SUDO_MESSAGE_ERR;
-    }
-
-    for(command_array = msg.command ; *command_array != NULL ; command_array++) {
-
-        if (!dbus_message_iter_append_basic(&sub_iter,
-                                            DBUS_TYPE_STRING,
-                                            command_array)) {
-            fprintf(stderr, "Out Of Memory!\n");
-            free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-            return SSS_SUDO_MESSAGE_ERR;
-        }
-
-    }
-
-    if (!dbus_message_iter_close_container(&msg_iter,&sub_iter)) {
-        fprintf(stderr, "Out Of Memory!\n");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-        return SSS_SUDO_MESSAGE_ERR;
-    }
-    ////////
-
-    if(dbus_dhash_to_msg_iter(&settings_table,&msg_iter) != SSS_SBUS_CONV_SUCCESS){
-        fprintf(stderr,"fatal: message framing failed.");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-        return SSS_SUDO_MESSAGE_ERR;
-    }
-
-    if(dbus_dhash_to_msg_iter(&env_table,&msg_iter) != SSS_SBUS_CONV_SUCCESS){
-        fprintf(stderr,"fatal: message framing failed.");
-        free_connection(conn,&err,settings_table,dbus_msg,(DBusMessage *)NULL);
-        return SSS_SUDO_MESSAGE_ERR;
-    }
-
-    hash_destroy(settings_table);
 
     /* send message and get a handle for a reply */
     dbus_reply = dbus_connection_send_with_reply_and_block (conn,dbus_msg,
-                                                            -1,
+                                                            SUDO_CLIENT_TIMEOUT,
                                                             &err);
     fprintf(stdout,"Request Sent\n");
     if (dbus_error_is_set(&err)) {
@@ -1065,54 +1151,22 @@ int sss_sudo_make_request(struct sss_cli_req_data *rd,
         free_connection(conn,&err,(hash_table_t *)NULL,dbus_msg,(DBusMessage *)NULL);
         return SSS_SUDO_REPLY_ERR;
     }
+    sudo_result= (struct sudo_result_contents *)malloc(sizeof(struct sudo_result_contents));
 
-    ret = dbus_message_get_args(dbus_reply,
-                                &err,
-                                DBUS_TYPE_UINT32,&status,
-                                DBUS_TYPE_STRING,&result_str,
-                                DBUS_TYPE_ARRAY,DBUS_TYPE_STRING,&command_array,
-                                &command_array_out_size,
-                                DBUS_TYPE_INVALID);
-    if (!ret) {
-        fprintf (stderr,"Failed to parse reply, killing connection\n");
-        free_connection(conn,&err,(hash_table_t *)NULL,dbus_msg,dbus_reply);
-        return SSS_SUDO_REPLY_ERR;
+    ret = get_reply_message(conn,
+                            &err,
+                            dbus_msg,
+                            dbus_reply,
+                            sudo_result,
+                            &msg_iter);
+    if(ret != SSS_SUDO_REPLY_OK){
+
     }
-
-    fprintf(stdout,"----------Reply--------:\n"
-            "Header : %d \nResult status : %s\n"
-            "Command : ", status,result_str);
-
-    for(count =0;count< command_array_out_size;count++){
-        printf("%s ", command_array[count]);
-    }
-    if (!dbus_message_iter_init(dbus_reply, &msg_iter)) {
-        fprintf(stderr, "Reply iterator failed!\n");
-        free_connection(conn,&err,(hash_table_t *)NULL,dbus_msg,dbus_reply);
-        return SSS_SUDO_REPLY_ERR;
-    }
-
-    printf("\n");
-    dbus_message_iter_next(&msg_iter);
-    dbus_message_iter_next(&msg_iter);
-    dbus_message_iter_next(&msg_iter);
-
-    if(dbus_msg_iter_to_dhash(&msg_iter, &env_table_out) != SSS_SBUS_CONV_SUCCESS){
-        fprintf(stderr, "env message iterator corrupted!\n");
-        free_connection(conn,&err,(hash_table_t *)NULL,dbus_msg,dbus_reply);
-        return SSS_SUDO_REPLY_ERR;
-    }
-    printf("---------Reply End----------\n");
 
     /* free connection now */
     free_connection(conn,&err,(hash_table_t *)NULL,dbus_msg,dbus_reply);
-
-
-    if(strncmp(result_str,"PASS",4)==0)
-        return SSS_STATUS_SUCCESS;
-    else
-        return SSS_STATUS_FAILED;
-
+    *sudo_result_out = sudo_result;
+    return SSS_SUDO_SEND_AND_RECIEVE_OK;
 }
 
 void free_all( void )
@@ -1122,54 +1176,47 @@ void free_all( void )
     free(msg.prompt);
     free(msg.runas_user);
     free(msg.runas_group);
-    //free(msg.network_addrs);
+    free(msg.network_addrs);
     free(user_information.username);
 
 }
 
 
-int send_and_receive()
+int send_and_receive(struct sudo_result_contents ** sudo_result)
 {
     int ret;
-    int errnop;
-    struct sss_cli_req_data rd;
-    uint8_t *buf = NULL;
-    uint8_t *repbuf = NULL;
-    size_t replen;
-    int _status = SSS_SUDO_SYSTEM_ERR;
+    int status = SSS_SUDO_FAILED;
 
     print_sudo_items();
+    ret = sss_sudo_make_request(sudo_result);
 
-    errnop = 0;
-    ret = sss_sudo_make_request( &rd, &repbuf, &replen, &errnop);
 
-    if (ret != SSS_SUDO_SUCCESS) {
-        if (errnop != 0) {
-            fprintf( stderr, "Request to sssd failed. %d", errnop);
-        }
-        _status = SSS_SUDO_SYSTEM_ERR;
+    if (ret != SSS_SUDO_SEND_AND_RECIEVE_OK) {
+        fprintf( stderr, "Request to sssd failed.\n");
+        status = SSS_SUDO_FAILED;
         goto done;
     }
 
-    /* check the reply signature */
-    if (replen < (2*sizeof(int32_t))) {
-        //D(("response not in expected format."));
-        _status = SSS_SUDO_SYSTEM_ERR;
+    if(strncmp((*sudo_result)->result_str,SUDO_ALLOW_ACCESS_STR,4)==0){
+        /*
+         * TODO: Convert the environment table to environment vector
+         *       and save to sudo_result->env_array.
+         */
+        status = SSS_SUDO_SUCCESS;
+    }
+    else
+    {
+        status = SSS_SUDO_FAILED;
         goto done;
     }
-
 
 
     done:
-    _status = SSS_SUDO_SUCCESS;
-
-    if (_status == SSS_SUDO_SUCCESS)
-        return _status;
+    if (status == SSS_SUDO_SUCCESS)
+        return status;
     else
         return SSS_SUDO_FAILED;
 }
-
-
 
 /*
  * Plugin policy check function.
@@ -1184,7 +1231,9 @@ int  policy_check(int argc, char * const argv[],
     pam_handle_t *pamh;
     char *pam_user;
     char *pam_action;
-    int pam_ret;
+    int pam_ret = PAM_AUTHTOK_ERR;
+    int sudo_ret = SSS_SUDO_FAILED;
+    struct sudo_result_contents * sudo_result = NULL;
 
     if (!argc || argv[0] == NULL) {
         sudo_log(SUDO_CONV_ERROR_MSG, "no command specified\n");
@@ -1281,22 +1330,42 @@ int  policy_check(int argc, char * const argv[],
     msg.command = (char **) argv;
     msg.command_count = argc;
 
-    if(pam_ret==PAM_SUCCESS) {
-        pam_ret = send_and_receive();
+    if(pam_ret == PAM_SUCCESS) {
+        sudo_ret = send_and_receive(&sudo_result);
+        if(sudo_ret != SSS_SUDO_SUCCESS){
+            sudo_ret = SSS_SUDO_FAILED;
+            free(pam_action);
+            goto done;
+        }
+    }
+    else{
+        sudo_ret = SSS_SUDO_FAILED;
+        free(pam_action);
+        goto done;
     }
 
     free(pam_action);
-    free_all();
     /* Setup command info. */
     *command_info_out = build_command_info(command);
     if (*command_info_out == NULL) {
         sudo_log(SUDO_CONV_ERROR_MSG, "out of memory\n");
         return ERROR;
     }
-    if(pam_ret==SSS_SUDO_SUCCESS)
-        return TRUE;
+    *user_env_out = msg.user_env;/*sudo_result->env_array*/;
 
-    return FALSE;
+    done:
+    if(sudo_ret==SSS_SUDO_SUCCESS){
+        free_all();
+        return SUDO_ALLOW_CMD_EXECUTION;
+    }
+    sudo_log(SUDO_CONV_ERROR_MSG,
+             "User %s is not allowed run command %s on this Host machine( '%s' ) as user %s\n",
+             user_information.username,
+             msg.fq_command,
+             msg.network_addrs,
+             msg.runas_user );
+    free_all();
+    return SUDO_DENY_CMD_EXECUTION;
 }
 
 int policy_list(int argc, char * const argv[], int verbose, const char *list_user)

@@ -1,8 +1,6 @@
 /*
     SSSD
 
-    sss_sudo_cli.h
-
     Authors:
         Arun Scaria <arunscaria91@gmail.com>
 
@@ -21,6 +19,7 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
+
 
 #ifndef _SSS_SUDO_CLI_H_
 #define _SSS_SUDO_CLI_H_
@@ -53,6 +52,10 @@
 
 #define INIT_ENV_TABLE_SIZE 10
 
+#define SUDO_CLIENT_TIMEOUT 60000
+
+#define SSS_SUDO_REPLY_HEADER 0x43256
+
 #ifndef _SSSCLI_H
 
 /* If sss_cli.h is not included */
@@ -61,15 +64,8 @@ struct sss_cli_req_data {
     const void *data;
 };
 
-enum sss_status {
-    SSS_STATUS_SUCCESS,
-    SSS_STATUS_FAILED,
-    SSS_STATUS_TRYAGAIN,
-    SSS_STATUS_UNAVAIL
 
-};
-
-#endif 
+#endif
 
 
 
@@ -83,7 +79,10 @@ enum error_types_sudo{
     SSS_SUDO_LOG_ERR,
     SSS_SUDO_LOG_NOTICE,
     SSS_SUDO_MESSAGE_ERR,
-    SSS_SUDO_REPLY_ERR
+    SSS_SUDO_MESSAGE_OK,
+    SSS_SUDO_REPLY_ERR,
+    SSS_SUDO_REPLY_OK,
+    SSS_SUDO_SEND_AND_RECIEVE_OK
 
 };
 
@@ -126,10 +125,19 @@ struct sss_sudo_msg_contents
     int command_count;
 
     /* Clients pid */
-    int cli_pid;
+    pid_t cli_pid;
 
     hash_table_t *settings_table;
     hash_table_t *env_table;
+};
+
+struct sudo_result_contents{
+    dbus_uint32_t header;
+    char * result_str;
+    char ** command_array;
+    dbus_uint32_t command_array_out_size;
+    hash_table_t *env_table_out;
+    char ** env_array;
 };
 
 #define  SSS_SUDO_ITEM_RUSER                "runas_user"
@@ -148,6 +156,13 @@ struct sss_sudo_msg_contents
 #define  SSS_SUDO_ITEM_DEBUG_LEVEL          "use_debug_level"
 #define  SSS_SUDO_ITEM_CLI_PID              "client_pid"
 
+
+#define SUDO_ALLOW_ACCESS_STR  "ALLOW"
+#define SUDO_DENY_ACCESS_STR   "DENY"
+
+#define SUDO_ALLOW_CMD_EXECUTION  1
+#define SUDO_DENY_CMD_EXECUTION   0
+#define SUDO_ERR_CMD_EXECUTION    -1
 
 
 #endif  /* _SSS_SUDO_CLI_H_ */
