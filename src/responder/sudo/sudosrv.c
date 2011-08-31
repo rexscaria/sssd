@@ -32,7 +32,6 @@
 #include <fnmatch.h>
 #include <netdb.h>
 
-
 #include <popt.h>
 #include "dhash.h"
 #include "util/util.h"
@@ -64,27 +63,31 @@ static int sudo_client_destructor(void *ctx)
     return 0;
 }
 
-char * get_host_name(TALLOC_CTX* mem_ctx){
+errno_t get_host_name(TALLOC_CTX* mem_ctx, char **host_name){
 
     struct addrinfo hints, *info;
     int gai_result;
 
-    char *hostname = talloc_size(mem_ctx,1024);
-    hostname[1024]='\0';
-    gethostname(hostname, 1023);
+    char *hostname = talloc_size(mem_ctx,HOST_NAME_MAX);
+    hostname[HOST_NAME_MAX]='\0';
+    if((gai_result = gethostname(hostname, HOST_NAME_MAX-1))!= 0){
+        DEBUG(0, ("gethostname() failed. - %s\n",strerror(gai_result)));
+        return ENOMEM;
+    }
 
     memset(&hints, 0, sizeof hints);
     hints.ai_family = AF_UNSPEC; /*either IPV4 or IPV6*/
-    hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_CANONNAME;
 
-    if ((gai_result = getaddrinfo(hostname, "http", &hints, &info)) != 0) {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(gai_result));
-        exit(1);
+    if ((gai_result = getaddrinfo(hostname, NULL, &hints, &info)) != 0) {
+        DEBUG(0, ("getaddrinfo: %s\n", gai_strerror(gai_result)));
+        return ENOMEM;
     }
 
+    *host_name = talloc_strdup(mem_ctx, info->ai_canonname);
 
-    return talloc_strdup(mem_ctx, info->ai_canonname);
+    freeaddrinfo(info);
+    return EOK;
 
 }
 
@@ -159,8 +162,7 @@ errno_t prepare_filter( TALLOC_CTX * mem_ctx,
 }
 
 
-int compare_sudo_order(const struct ldb_message **msg1, const struct ldb_message **msg2)
-{
+int compare_sudo_order(const struct ldb_message **msg1, const struct ldb_message **msg2) {
     int ret;
     double order_msg1 = ldb_msg_find_attr_as_double(*msg1, SYSDB_SUDO_ORDER_ATTR, 0.0);
     double order_msg2 = ldb_msg_find_attr_as_double(*msg2, SYSDB_SUDO_ORDER_ATTR, 0.0);
@@ -549,8 +551,8 @@ errno_t search_sudo_rules(struct sudo_client *sudocli,
             goto done;
     }
 
-    host = get_host_name(tmp_mem_ctx);
-    if (!host) {
+    ret = get_host_name(tmp_mem_ctx, &host);
+    if (ret != EOK) {
         DEBUG(0, ("Failed to build hostname \n"));
         return ENOMEM;
     }
@@ -950,7 +952,7 @@ errno_t evaluate_sudo_valid_rules(TALLOC_CTX* mem_ctx,
                                   char * user_args,
                                   char ** safe_cmnd,
                                   char ** safe_args,
-                                  unsigned int * access){
+                                  unsigned int * access_str){
 
     struct sss_sudorule_list * list_head = valid_rules->non_defaults , *current_node;
     struct ldb_message_element *el;
@@ -959,7 +961,7 @@ errno_t evaluate_sudo_valid_rules(TALLOC_CTX* mem_ctx,
     struct sudo_cmd_ctx * sudo_cmnd;
     struct sss_sudo_command_list * list_cmnds_head = NULL, *list_cmnds_node;
 
-    *access = SUDO_DENY_ACCESS;
+    *access_str = SUDO_DENY_ACCESS;
     DEBUG(0,("\n\n\nIn rule evaluation based on commands\n"));
     sudo_cmnd = talloc_zero(mem_ctx,struct sudo_cmd_ctx);
     if(!sudo_cmnd){
@@ -973,6 +975,8 @@ errno_t evaluate_sudo_valid_rules(TALLOC_CTX* mem_ctx,
                                   SYSDB_SUDO_COMMAND_ATTR);
         if (!el) {
             DEBUG(0, ("Failed to get sudo commands for sudorule\n"));
+            /* Can't work without commands */
+            return ENOENT;
         }
         for (i = 0; i < el->num_values; i++) {
             tmpcmd = talloc_asprintf(mem_ctx,
@@ -1042,12 +1046,12 @@ errno_t evaluate_sudo_valid_rules(TALLOC_CTX* mem_ctx,
                                 safe_cmnd,
                                 safe_args) == SUDO_MATCH_TRUE){
                 if(sudo_cmnd->negated)
-                    *access = SUDO_DENY_ACCESS;
+                    *access_str = SUDO_DENY_ACCESS;
                 else
-                    *access = SUDO_ALLOW_ACCESS;
+                    *access_str = SUDO_ALLOW_ACCESS;
             }
             else
-                *access = SUDO_DENY_ACCESS;
+                *access_str = SUDO_DENY_ACCESS;
             DEBUG(0, ("%s matched and %s \n" ,tmpcmd,sudo_cmnd->negated?"negated":"not negated"));
         }
 
