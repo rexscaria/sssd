@@ -20,16 +20,15 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-
 #include <sys/time.h>
 #include <errno.h>
+#include <dhash.h>
+#include <talloc.h>
 #include "util/util.h"
 #include "dbus/dbus.h"
 #include "sbus/sssd_dbus.h"
 #include "sbus/sssd_dbus_private.h"
-#include <dhash.h>
 #include "sbus/sssd_dbus_messages_helpers.h"
-
 
 void callback_delete(hash_entry_t *entry, hash_destroy_enum type, void *pvt)
 {
@@ -40,79 +39,94 @@ void callback_delete(hash_entry_t *entry, hash_destroy_enum type, void *pvt)
 int dbus_dhash_to_msg_iter(hash_table_t **table_in,
                            DBusMessageIter *msg_iter_start)
 {
-
-    hash_table_t *  local_table = NULL;
+    hash_table_t *local_table = NULL;
     hash_entry_t *entry;
     struct hash_iter_context_t *iter;
-
-    char * str_value,*str_key;
-
-    DBusMessageIter *msg_iter;
+    char *str_value;
+    char *str_key;
     DBusMessageIter sub_iter;
     DBusMessageIter dict_iter;
+    int ret;
 
-    msg_iter = msg_iter_start;
-
-    if( !table_in && !*table_in) {
-        DEBUG(0,("Table is not valid."));
-        return SSS_SBUS_DHASH_NULL;
+    if (!table_in || !*table_in) {
+        DEBUG(0, ("Table is not valid."));
+        ret = SSS_SBUS_DHASH_NULL;
+        goto done;
     }
-    local_table =  *table_in;
+    local_table = *table_in;
 
-    if(!dbus_message_iter_open_container(msg_iter,
-                                        DBUS_TYPE_ARRAY,
-                                        "{ss}",
-                                        &sub_iter)) {
-            DEBUG(0,("Out Of Memory!\n"));
-           return SSS_SBUS_ITER_MESSAGE_ERR;
-       }
+    if (!dbus_message_iter_open_container(msg_iter_start, DBUS_TYPE_ARRAY,
+                                          "{ss}", &sub_iter)) {
+        DEBUG(0, ("Out Of Memory!\n"));
+        ret = SSS_SBUS_ITER_MESSAGE_ERR;
+        goto done;
+    }
 
-       iter = new_hash_iter_context(local_table);
-       while ((entry = iter->next(iter)) != NULL) {
+    iter = new_hash_iter_context(local_table);
+    while ((entry = iter->next(iter)) != NULL) {
+        if (entry->key.type != HASH_KEY_STRING
+            && entry->value.type != HASH_VALUE_PTR) {
+            DEBUG(0, ("Unexpected hashtable"));
+            ret = SSS_SBUS_DHASH_INVALID;
+            goto done;
+        }
 
-           if(entry->key.type != HASH_KEY_STRING && entry->value.type != HASH_VALUE_PTR) {
-               DEBUG(0,("fatal: Unexpected hashtable"));
-               return SSS_SBUS_DHASH_INVALID;
-           }
+        str_key = strdup(entry->key.str);
+        if (str_key == NULL) {
+            DEBUG(0, ("strdup() failed\n"));
+            ret = SSS_SBUS_ITER_MESSAGE_ERR;
+            goto done;
+        }
+        str_value = strdup((char*)entry->value.ptr);
+        if (str_value == NULL) {
+            DEBUG(0, ("strdup() failed\n"));
+            ret = SSS_SBUS_ITER_MESSAGE_ERR;
+            goto done;
+        }
 
-           str_key   = strdup((char *) entry->key.str);
-           str_value = strdup((char *) entry->value.ptr);
+        if (!dbus_message_iter_open_container(&sub_iter, DBUS_TYPE_DICT_ENTRY,
+                                              NULL, &dict_iter)) {
+            DEBUG(0, ("Out Of Memory!\n"));
+            ret = SSS_SBUS_ITER_MESSAGE_ERR;
+            goto done;
+        }
 
-           if(!dbus_message_iter_open_container(&sub_iter,
-                                                DBUS_TYPE_DICT_ENTRY,
-                                                NULL,
-                                                &dict_iter)) {
-               DEBUG(0,( "Out Of Memory!\n"));
-               return SSS_SBUS_ITER_MESSAGE_ERR;
-           }
+        if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING,
+                                            &str_key)) {
+            DEBUG(0, ("Out Of Memory!\n"));
+            ret = SSS_SBUS_ITER_MESSAGE_ERR;
+            goto done;
+        }
 
-                 if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &str_key)) {
-                     DEBUG(0,("Out Of Memory!\n"));
-                     return SSS_SBUS_ITER_MESSAGE_ERR;
-                 }
-                 if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING, &str_value)) {
-                     DEBUG(0,( "Out Of Memory!\n"));
-                     return SSS_SBUS_ITER_MESSAGE_ERR;
-                 }
+        if (!dbus_message_iter_append_basic(&dict_iter, DBUS_TYPE_STRING,
+                                            &str_value)) {
+            DEBUG(0, ("Out Of Memory!\n"));
+            ret = SSS_SBUS_ITER_MESSAGE_ERR;
+            goto done;
+        }
 
-                 free(str_key);
-                 free(str_value);
-           if (!dbus_message_iter_close_container(&sub_iter,&dict_iter)) {
-               DEBUG(0,( "Out Of Memory!\n"));
-               return SSS_SBUS_ITER_MESSAGE_ERR;
-           }
+        if (!dbus_message_iter_close_container(&sub_iter, &dict_iter)) {
+            DEBUG(0, ("Out Of Memory!\n"));
+            return SSS_SBUS_ITER_MESSAGE_ERR;
+        }
 
+        free(str_key);
+        free(str_value);
+    }
 
+    if (!dbus_message_iter_close_container(msg_iter_start, &sub_iter)) {
+        DEBUG(0, ("Out Of Memory!\n"));
+        ret = SSS_SBUS_ITER_MESSAGE_ERR;
+        goto done;
+    }
 
-       }
-       free(iter);
-       if (!dbus_message_iter_close_container(msg_iter,&sub_iter)) {
-              DEBUG(0,( "Out Of Memory!\n"));
-              return SSS_SBUS_ITER_MESSAGE_ERR;
-       }
+    ret = SSS_SBUS_CONV_SUCCESS;
 
-    return SSS_SBUS_CONV_SUCCESS;
-
+done:
+    free(iter);
+    free(str_key);
+    free(str_value);
+    return ret;
 }
 
 int dbus_msg_iter_to_dhash(DBusMessageIter *iter, hash_table_t **table_out)
@@ -121,69 +135,60 @@ int dbus_msg_iter_to_dhash(DBusMessageIter *iter, hash_table_t **table_out)
     DBusMessageIter sub_iter;
     DBusMessageIter dict_iter;
     hash_table_t *local_table = NULL;
-    hash_key_t   key;
+    hash_key_t key;
     hash_value_t value;
     int err_h;
-    char * tmp;
+    char *tmp;
 
     msg_iter = *iter;
 
-    err_h =  hash_create((unsigned long)INIT_TABLE_SIZE,
-                                        &local_table,
-                                        callback_delete,
-                                        NULL);
-        if (err_h != HASH_SUCCESS) {
-                DEBUG(0,( "couldn't create hash table (%s)\n", hash_error_string(err_h)));
+    err_h = hash_create((unsigned long)INIT_TABLE_SIZE, &local_table,
+                        callback_delete, NULL);
+    if (err_h != HASH_SUCCESS) {
+        DEBUG(0, ("Couldn't create hash table (%s)\n", hash_error_string(err_h)));
+        return err_h;
+    }
+
+    if (dbus_message_iter_get_arg_type(&msg_iter) != DBUS_TYPE_ARRAY) {
+        DEBUG(0, ("Message Iter is invalid\n"));
+        return SSS_SBUS_ITER_INVALID_ERR;
+    } else {
+        dbus_message_iter_recurse(&msg_iter, &sub_iter);
+    }
+
+    do {
+        if (dbus_message_iter_get_arg_type(&sub_iter) != DBUS_TYPE_DICT_ENTRY) {
+            DEBUG(0, ("Dict content failed"));
+        } else {
+            dbus_message_iter_recurse(&sub_iter, &dict_iter);
+        }
+
+        if (dbus_message_iter_get_arg_type(&dict_iter) != DBUS_TYPE_STRING) {
+            DEBUG(0, ("String array content failed"));
+            return SSS_SBUS_ITER_MESSAGE_ERR;
+        } else {
+            key.type = HASH_KEY_STRING;
+            value.type = HASH_VALUE_PTR;
+
+            dbus_message_iter_get_basic(&dict_iter, &tmp);
+            key.str = tmp;
+            dbus_message_iter_next(&dict_iter);
+            if (dbus_message_iter_get_arg_type(&dict_iter) != DBUS_TYPE_STRING) {
+                DEBUG(0, ("String array content failed"));
+                return SSS_SBUS_ITER_MESSAGE_ERR;
+            }
+
+            dbus_message_iter_get_basic(&dict_iter, &tmp);
+            value.ptr = tmp;
+            err_h = hash_enter(local_table, &key, &value);
+            if (err_h != HASH_SUCCESS) {
+                DEBUG(0, ("Couldn't add to table \"%s\" (%s)\n",
+                      key.str, hash_error_string(err_h)));
                 return err_h;
-        }
-
-        if(DBUS_TYPE_ARRAY != dbus_message_iter_get_arg_type(&msg_iter)) {
-            DEBUG(0,("message Iter is invalid\n"));
-            return SSS_SBUS_ITER_INVALID_ERR;
-
-        }
-        else {
-                dbus_message_iter_recurse(&msg_iter, &sub_iter);
             }
+        }
+    } while (dbus_message_iter_next(&sub_iter));
 
-            while(1){
-
-                if(DBUS_TYPE_DICT_ENTRY != dbus_message_iter_get_arg_type(&sub_iter)) {
-                    DEBUG(0,("dict content failed"));
-                }
-                else {
-                    dbus_message_iter_recurse(&sub_iter, &dict_iter);
-                }
-
-                    if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&dict_iter)) {
-                        DEBUG(0,("string array content failed"));
-                        return SSS_SBUS_ITER_MESSAGE_ERR;
-                    }
-                    else {
-                        key.type = HASH_KEY_STRING;
-                        value.type = HASH_VALUE_PTR;
-                        dbus_message_iter_get_basic(&dict_iter, &tmp);
-                        key.str = tmp;
-                        dbus_message_iter_next (&dict_iter);
-                        if(DBUS_TYPE_STRING != dbus_message_iter_get_arg_type(&dict_iter)) {
-                            DEBUG(0,("string array content failed"));
-                            return SSS_SBUS_ITER_MESSAGE_ERR;
-                        }
-                        dbus_message_iter_get_basic(&dict_iter, &tmp);
-                        value.ptr = tmp;
-
-                        if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
-                            DEBUG(0,( "couldn't add to table \"%s\" (%s)\n", key.str, hash_error_string(err_h)));
-                            return err_h;
-                        }
-                        if(!dbus_message_iter_next (&sub_iter)) {
-                                 /* struct ended. */
-                                 break;
-                             }
-                    }
-
-            }
-
-            *table_out = local_table;
-            return SSS_SBUS_CONV_SUCCESS;
+    *table_out = local_table;
+    return SSS_SBUS_CONV_SUCCESS;
 }
