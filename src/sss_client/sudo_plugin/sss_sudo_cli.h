@@ -69,7 +69,7 @@ struct sss_cli_req_data {
 
 
 
-enum error_types_sudo{
+enum sudo_error_types {
 
     SSS_SUDO_SUCCESS = 0x01,
     SSS_SUDO_FAILED,
