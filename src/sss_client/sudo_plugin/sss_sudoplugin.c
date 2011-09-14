@@ -451,7 +451,7 @@ int policy_open(unsigned int version,
 }
 
 /* Function to check if the command is available in the PATH */
-char* find_in_path(char *command, char **envp)
+char* find_in_path(char *command, char * const envp[])
 {
     struct stat sb;
     char *path;
@@ -546,7 +546,7 @@ char* find_editor(int nfiles, char * const files[], char **argv_out[])
     char *cp;
     char * const *ep;
     char **nargv;
-    char *editor;
+    char *editor = NULL;
     char *editor_path;
     int ac;
     int i;
@@ -554,15 +554,13 @@ char* find_editor(int nfiles, char * const files[], char **argv_out[])
     int wasblank;
 
     /* Lookup EDITOR in user's environment. */
-    editor = _PATH_VI;
     for (ep = plugin_state.envp; *ep != NULL; ep++) {
         if (strncmp(*ep, "EDITOR=", 7) == 0) {
             editor = *ep + 7;
             break;
         }
     }
-
-    editor = strdup(editor);
+    editor = editor == NULL ? strdup(_PATH_VI) : strdup(editor);
     if (editor == NULL) {
         sudo_log(SUDO_CONV_ERROR_MSG, "unable to allocate memory\n");
         return NULL;
@@ -600,7 +598,7 @@ char* find_editor(int nfiles, char * const files[], char **argv_out[])
         nargv[ac] = cp;
         cp = strtok(NULL, " \t");
     }
-    nargv[ac++] = "--";
+    nargv[ac++] = strdup("--");
     for (i = 0; i < nfiles; ) {
         nargv[ac++] = files[i++];
     }
@@ -616,13 +614,13 @@ void delete_callback(hash_entry_t *entry, hash_destroy_enum type, void *pvt)
         free(entry->value.ptr);
 }
 
-int create_env_hash_table(char **env, hash_table_t **table_out) {
+int create_env_hash_table(char * const env[], hash_table_t **table_out) {
 
     hash_table_t *local_table = NULL;
     hash_key_t   key;
     hash_value_t value;
     char *tmp;
-    char **ui;
+    char * const *ui;
     int err_h;
 
     err_h = hash_create((unsigned long)INIT_ENV_TABLE_SIZE, &local_table,
@@ -633,7 +631,7 @@ int create_env_hash_table(char **env, hash_table_t **table_out) {
         return err_h;
     }
 
-    for (ui = (char**)msg.user_env; *ui != NULL; ui++) {
+    for (ui = msg.user_env; *ui != NULL; ui++) {
         tmp = strchr(*ui,'=');
         *tmp = '\0';
         key.type = HASH_KEY_STRING;
@@ -659,8 +657,6 @@ int create_settings_hash_table(hash_table_t ** table_out) {
     hash_table_t *local_table = NULL;
     hash_key_t   key;
     hash_value_t value;
-    const char *truth = "TRUE";
-    const char *fallacy = "FALSE";
     int err_h;
 
     err_h = hash_create((unsigned long)INIT_SETTINGS_TABLE_SIZE, &local_table,
@@ -775,7 +771,7 @@ int create_settings_hash_table(hash_table_t ** table_out) {
 
 
     key.str = strdup(SSS_SUDO_ITEM_USE_PRE_GROUPS);
-    value.i = GET_BOOL_STRING(msg.use_preserve_groups);
+    value.ptr = GET_BOOL_STRING(msg.use_preserve_groups);
     if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
         fprintf(stderr, "cannot add to table \"%s\" (%s)\n",
         		key.str, hash_error_string(err_h));
@@ -813,7 +809,7 @@ int create_settings_hash_table(hash_table_t ** table_out) {
     free(key.str);
 
     key.str = strdup(SSS_SUDO_ITEM_CLI_PID);
-    asprintf(&value.ptr,"%u",msg.cli_pid);
+    asprintf((char**)&value.ptr,"%u",msg.cli_pid);
     if ((err_h = hash_enter(local_table, &key, &value)) != HASH_SUCCESS) {
         fprintf(stderr, "cannot add to table \"%s\" (%s)\n",
         		key.str, hash_error_string(err_h));
@@ -829,10 +825,10 @@ int create_settings_hash_table(hash_table_t ** table_out) {
 void free_connection(DBusConnection *conn,
                      DBusError *err,
                      hash_table_t *settings_table,
-                     DBusMessage *msg,
+                     DBusMessage *message,
                      DBusMessage *reply ){
-    if (msg != NULL)
-        dbus_message_unref(msg);
+    if (message != NULL)
+        dbus_message_unref(message);
 
     if (reply != NULL)
         dbus_message_unref(reply);
@@ -911,7 +907,7 @@ fail:
 	return SSS_SUDO_REPLY_ERR;
 }
 
-enum sudo_error_types validate_message_content(void)
+enum sss_sudo_validation_status validate_message_content(void)
 {
     if (!msg.cwd && !*msg.cwd) {
         fprintf(stderr,"fatal: Current working directory is invalid.");
@@ -943,7 +939,6 @@ enum sudo_error_types frame_sudo_message(DBusConnection *conn,
 										 DBusMessage *dbus_msg,
 										 struct sss_sudo_msg_contents *sudo_msg,
 										 DBusMessageIter *msg_iter) {
-    int count = 0;
     DBusMessageIter sub_iter;
     char **command_array;
 
@@ -1031,12 +1026,7 @@ fail:
 
 enum sudo_error_types sss_sudo_make_request(struct sudo_result_contents **sudo_result_out)
 {
-    char **ui;
-    char **command_array;
     int err_status;
-    int count;
-    dbus_uint32_t header;
-    dbus_uint32_t command_array_out_size;
     struct sudo_result_contents *sudo_result = NULL;
     DBusConnection *conn;
     DBusMessage *dbus_msg;
@@ -1217,7 +1207,7 @@ int policy_check(int argc, char * const argv[], char *env_add[],
         use_sudoedit = TRUE;
     } else {
         /* No changes to argv are needed */
-        *argv_out = (char**)argv;
+        *argv_out = argv;
     }
 
     /* No changes to envp */
