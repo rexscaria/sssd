@@ -1510,6 +1510,7 @@ struct cli_protocol_version *register_cli_protocol_version(void)
 
 struct sss_cmd_table *get_sudo_cmds(void)
 {
+	/*
     static struct sss_cmd_table sss_cmds[] = {
                                               {SSS_SUDO_AUTHENTICATE, NULL},
                                               {SSS_SUDO_INVALIDATE, NULL},
@@ -1517,6 +1518,8 @@ struct sss_cmd_table *get_sudo_cmds(void)
                                               {SSS_SUDO_LIST, NULL},
                                               {SSS_CLI_NULL, NULL}
     };
+    */
+	static struct sss_cmd_table sss_cmds[] = {{SSS_CLI_NULL, NULL}};
 
     return sss_cmds;
 }
