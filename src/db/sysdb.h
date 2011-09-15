@@ -30,20 +30,46 @@
 #define CACHE_SYSDB_FILE "cache_%s.ldb"
 #define LOCAL_SYSDB_FILE "sssd.ldb"
 
+#define SUDO_RULE_OBJ_CLASS "sudoRole"
 #define SYSDB_BASE "cn=sysdb"
 #define SYSDB_DOM_BASE "cn=%s,cn=sysdb"
 #define SYSDB_USERS_CONTAINER "cn=users"
 #define SYSDB_GROUPS_CONTAINER "cn=groups"
 #define SYSDB_CUSTOM_CONTAINER "cn=custom"
 #define SYSDB_NETGROUP_CONTAINER "cn=Netgroups"
+#define SYSDB_SUDO_CONTAINER "ou=sudoers"
 #define SYSDB_TMPL_USER_BASE SYSDB_USERS_CONTAINER",cn=%s,"SYSDB_BASE
 #define SYSDB_TMPL_GROUP_BASE SYSDB_GROUPS_CONTAINER",cn=%s,"SYSDB_BASE
 #define SYSDB_TMPL_CUSTOM_BASE SYSDB_CUSTOM_CONTAINER",cn=%s,"SYSDB_BASE
 #define SYSDB_TMPL_NETGROUP_BASE SYSDB_NETGROUP_CONTAINER",cn=%s,"SYSDB_BASE
+#define SYSDB_TMPL_SUDO_BASE SYSDB_SUDO_CONTAINER",cn=%s,"SYSDB_BASE
+#define SYSDB_SUDORULE SYSDB_OBJECTCLASS"="SUDO_RULE_OBJ_CLASS
 
 #define SYSDB_USER_CLASS "user"
 #define SYSDB_GROUP_CLASS "group"
 #define SYSDB_NETGROUP_CLASS "netgroup"
+
+#define SYSDB_SUDO_CONTAINER_ATTR "cn"
+#define SYSDB_SUDO_USER_ATTR "sudoUser"
+#define SYSDB_SUDO_HOST_ATTR "sudoHost"
+#define SYSDB_SUDO_OPTION_ATTR "sudoOption"
+#define SYSDB_SUDO_COMMAND_ATTR "sudoCommand"
+#define SYSDB_SUDO_RUNAS_USER_ATTR "sudoRunAsUser"
+#define SYSDB_SUDO_RUNAS_GROUP_ATTR "sudoRunAsGroup"
+#define SYSDB_SUDO_NOT_BEFORE_ATTR "sudoNotBefore"
+#define SYSDB_SUDO_NOT_AFTER_ATTR "sudoNotAfter"
+#define SYSDB_SUDO_ORDER_ATTR "sudoOrder"
+#define SYSDB_SUDO_DEFAULT_RULE "defaults"
+
+#define SYSDB_SUDO_DEFAULT_RUNAS_USER_NAME "root"
+#define SYSDB_SUDO_DEFAULT_RUNAS_USER_ID  0
+#define SYSDB_SUDO_DEFAULT_RUNAS_USER_ID_STR  "0"
+
+#define SYSDB_SUDO_DEFAULT_RUNAS_GROUP_NAME "root"
+#define SYSDB_SUDO_DEFAULT_RUNAS_GROUP_ID  0
+#define SYSDB_SUDO_DEFAULT_RUNAS_GROUP_ID_STR  "0"
+
+#define SYSDB_SUDO_USER_MATCH_ATTR "("SYSDB_SUDO_USER_ATTR"=%s)"
 
 #define SYSDB_NAME "name"
 #define SYSDB_OBJECTCLASS "objectClass"
@@ -120,6 +146,7 @@
 #define SYSDB_GRENT_MPG_FILTER "("SYSDB_MPGC")"
 
 #define SYSDB_INITGR_FILTER "(&("SYSDB_GC")("SYSDB_GIDNUM"=*))"
+#define SYSDB_INITGR_ALL_FILTER "(&("SYSDB_GC")(|(&("SYSDB_NAME"=*)("SYSDB_POSIX"=FALSE))("SYSDB_GIDNUM"=*)))"
 
 #define SYSDB_GETCACHED_FILTER "(&"SYSDB_UC")("SYSDB_LAST_LOGIN">=%lu))"
 
@@ -156,6 +183,10 @@
 
 #define SYSDB_INITGR_ATTR SYSDB_MEMBEROF
 #define SYSDB_INITGR_ATTRS {SYSDB_GIDNUM, SYSDB_POSIX, \
+                            SYSDB_DEFAULT_ATTRS, \
+                            NULL}
+
+#define SYSDB_INITGR_ALL_ATTRS {SYSDB_GIDNUM, SYSDB_NAME, SYSDB_POSIX, \
                             SYSDB_DEFAULT_ATTRS, \
                             NULL}
 
@@ -355,6 +386,12 @@ int sysdb_initgroups(TALLOC_CTX *mem_ctx,
                      const char *name,
                      struct ldb_result **res);
 
+int sysdb_get_groups_by_user(TALLOC_CTX *mem_ctx,
+                     struct sysdb_ctx *ctx,
+                     struct sss_domain_info *domain,
+                     const char *name,
+                     struct ldb_result **_res);
+
 int sysdb_get_user_attr(TALLOC_CTX *mem_ctx,
                         struct sysdb_ctx *sysdb,
                         const char *name,
@@ -387,6 +424,15 @@ int sysdb_search_entry(TALLOC_CTX *mem_ctx,
                        struct ldb_dn *base_dn,
                        int scope,
                        const char *filter,
+                       const char **attrs,
+                       size_t *msgs_count,
+                       struct ldb_message ***msgs);
+
+/* search sudo rules */
+int sysdb_search_sudo_rules(TALLOC_CTX *mem_ctx,
+                       struct sysdb_ctx *sysdb,
+                       struct sss_domain_info *domain,
+                       const char *sub_filter,
                        const char **attrs,
                        size_t *msgs_count,
                        struct ldb_message ***msgs);

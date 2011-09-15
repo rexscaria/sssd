@@ -24,6 +24,7 @@ dbusintrospectdir = $(datarootdir)/sssd/introspect
 localedir = @localedir@
 nsslibdir = @nsslibdir@
 pamlibdir = @pammoddir@
+libsss_sudoplugindir = @sudo_pluginpath@
 
 dbpath = @dbpath@
 pluginpath = @pluginpath@
@@ -68,7 +69,8 @@ sssdlibexec_PROGRAMS = \
     sssd_be \
     krb5_child \
     ldap_child \
-    proxy_child
+    proxy_child \
+    sssd_sudo
 
 if HAVE_CHECK
     non_interactive_check_based_tests = \
@@ -200,7 +202,9 @@ AM_CPPFLAGS = \
     -DSSSD_CONF_DIR=\"$(sssdconfdir)\" \
     -DSSS_NSS_SOCKET_NAME=\"$(pipepath)/nss\" \
     -DSSS_PAM_SOCKET_NAME=\"$(pipepath)/pam\" \
+    -DSSS_SUDO_SOCKET_NAME=\"$(pipepath)/sudo\" \
     -DSSS_PAM_PRIV_SOCKET_NAME=\"$(pipepath)/private/pam\" \
+    -DSSS_SUDO_PRIV_SOCKET_NAME=\"$(pipepath)/private/sudo\" \
     -DLOCALEDIR=\"$(localedir)\"
 
 EXTRA_DIST = build/config.rpath
@@ -362,6 +366,7 @@ libsss_util_la_SOURCES = \
     src/sbus/sssd_dbus_common.c \
     src/sbus/sssd_dbus_connection.c \
     src/sbus/sssd_dbus_server.c \
+    src/sbus/sssd_dbus_messages_helpers.c \
     src/util/util.c \
     src/util/memory.c \
     src/util/server.c \
@@ -419,6 +424,20 @@ sssd_pam_LDADD = \
     $(TDB_LIBS) \
     $(SSSD_LIBS) \
     libsss_util.la
+
+sssd_sudo_SOURCES = \
+    src/responder/sudo/sudosrv.c \
+    src/responder/sudo/match_sudo_cmnd.c \
+    $(SSSD_RESPONDER_OBJ)
+sssd_sudo_LDADD = \
+    $(TDB_LIBS) \
+    $(SSSD_LIBS) \
+    $(LDB_LIBS) \
+    libsss_util.la \
+    $(DBUS_LIBS) \
+    $(DHASH_LIBS)
+sssd_sudo_LDFLAGS = \
+    -g
 
 sssd_be_SOURCES = \
     src/providers/data_provider_be.c \
@@ -803,12 +822,32 @@ pam_sss_la_LDFLAGS = \
     -lpam \
     -module \
     -avoid-version \
+    -g \
     -Wl,--version-script,$(srcdir)/src/sss_client/sss_pam.exports
 
 dist_noinst_DATA += \
     src/sss_client/sss_nss.exports \
     src/sss_client/sss_pam.exports
 
+libsss_sudoplugin_LTLIBRARIES = libsss_sudoplugin.la
+libsss_sudoplugin_la_SOURCES = \
+    src/sss_client/sudo_plugin/sss_sudoplugin.c \
+    src/sss_client/sudo_plugin/sss_sudo_cli.h
+
+libsss_sudoplugin_la_LDFLAGS = \
+    -module \
+    -lpam \
+    -lpam_misc \
+    -g \
+    $(DBUS_LIBS) \
+    $(DHASH_LIBS) \
+    libsss_util.la
+
+libsss_sudoplugin_la_CPPFLAGS = \
+     $(AM_CPPFLAGS) \
+     -D_GNU_SOURCE \
+     -ldbus-1
+    
 ####################
 # Plugin Libraries #
 ####################

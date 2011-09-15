@@ -29,8 +29,27 @@ AC_DEFUN([WITH_PLUGIN_PATH],
         config_pluginpath=$with_plugin_path
     fi
     AC_SUBST(pluginpath)
-    AC_DEFINE_UNQUOTED(DATA_PROVIDER_PLUGINS_PATH, "$config_pluginpath", [Path to the SSSD data provider plugins])
+    AC_DEFINE_UNQUOTED(DATA_PROVIDER_PLUGINS_PATH, "$config_pluginpath", [Path to the SSSD sudo plugins])
   ])
+
+AC_DEFUN([WITH_SUDO_PLUGIN_PATH],
+  [ AC_ARG_WITH([sudo-plugin-path],
+                [AC_HELP_STRING([--with-sudo-plugin-path=PATH],
+                                [Path to the SSSD sudo plugins [/usr/lib/sudo]]
+                               )
+                ]
+               )
+    sudo_pluginpath="/usr/lib/sudo"
+    sudo_config_pluginpath="\"LIBDIR\"/sudo"
+    if test x"$with_sudo_plugin_path" != x; then
+        sudo_pluginpath=$with_sudo_plugin_path
+        sudo_config_pluginpath=$with_sudo_plugin_path
+    fi
+    AC_SUBST(sudo_pluginpath)
+    AC_DEFINE_UNQUOTED(SUDO_PLUGINS_PATH, "$sudo_config_pluginpath", [Path to the SSSD data provider plugins])
+  ])
+
+
 
 AC_DEFUN([WITH_PID_PATH],
   [ AC_ARG_WITH([pid-path],
