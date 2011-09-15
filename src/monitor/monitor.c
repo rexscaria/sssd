@@ -62,6 +62,7 @@
 
 int cmdline_debug_level;
 int cmdline_debug_timestamps;
+int cmdline_debug_microseconds;
 
 struct svc_spy;
 
@@ -85,7 +86,6 @@ struct mt_svc {
 
     int restarts;
     time_t last_restart;
-    time_t last_ping;
     int failed_pongs;
 
     int debug_level;
@@ -549,22 +549,14 @@ static void tasks_check_handler(struct tevent_context *ev,
             break;
         }
 
-        if (svc->last_ping != 0) {
-            if ((now - svc->last_ping) > (svc->ping_time)) {
-                svc->failed_pongs++;
-            } else {
-                svc->failed_pongs = 0;
-            }
-            if (svc->failed_pongs > 3) {
-                /* too long since we last heard of this process */
-                DEBUG(1, ("Killing service [%s], not responding to pings!\n",
-                          svc->name));
-                monitor_kill_service(svc);
-                process_alive = false;
-            }
+        if (svc->failed_pongs >= 3) {
+            /* too long since we last heard of this process */
+            DEBUG(SSSDBG_CRIT_FAILURE,
+                  ("Killing service [%s], not responding to pings!\n",
+                   svc->name));
+            monitor_kill_service(svc);
+            process_alive = false;
         }
-
-        svc->last_ping = now;
     }
 
     if (!process_alive) {
@@ -975,6 +967,17 @@ static int get_service_config(struct mt_ctx *ctx, const char *name,
             }
         }
 
+        if (cmdline_debug_microseconds != SSSDBG_MICROSECONDS_UNRESOLVED) {
+            svc->command = talloc_asprintf_append(
+                svc->command, " --debug-microseconds=%d",
+                cmdline_debug_microseconds
+            );
+            if (!svc->command) {
+                talloc_free(svc);
+                return ENOMEM;
+            }
+        }
+
         if (debug_to_file) {
             svc->command = talloc_strdup_append(
                 svc->command, " --debug-to-files"
@@ -1123,6 +1126,17 @@ static int get_provider_config(struct mt_ctx *ctx, const char *name,
         if (cmdline_debug_timestamps != SSSDBG_TIMESTAMP_UNRESOLVED) {
             svc->command = talloc_asprintf_append(
                 svc->command, " --debug-timestamps=%d", cmdline_debug_timestamps
+            );
+            if (!svc->command) {
+                talloc_free(svc);
+                return ENOMEM;
+            }
+        }
+
+        if (cmdline_debug_microseconds != SSSDBG_MICROSECONDS_UNRESOLVED) {
+            svc->command = talloc_asprintf_append(
+                svc->command, " --debug-microseconds=%d",
+                cmdline_debug_microseconds
             );
             if (!svc->command) {
                 talloc_free(svc);
@@ -2171,7 +2185,7 @@ static int service_send_ping(struct mt_svc *svc)
     }
 
     ret = sbus_conn_send(svc->conn, msg,
-                         svc->mt_ctx->service_id_timeout,
+                         svc->ping_time,
                          ping_check, svc, NULL);
     dbus_message_unref(msg);
     return ret;
@@ -2182,6 +2196,7 @@ static void ping_check(DBusPendingCall *pending, void *data)
     struct mt_svc *svc;
     DBusMessage *reply;
     const char *dbus_error_name;
+    size_t len;
     int type;
 
     svc = talloc_get_type(data, struct mt_svc);
@@ -2214,13 +2229,26 @@ static void ping_check(DBusPendingCall *pending, void *data)
     case DBUS_MESSAGE_TYPE_ERROR:
 
         dbus_error_name = dbus_message_get_error_name(reply);
+        if (!dbus_error_name) {
+            dbus_error_name = "<UNKNOWN>";
+        }
 
-        /* timeouts are handled in the main service check function */
-        if (strcmp(dbus_error_name, DBUS_ERROR_TIMEOUT) == 0)
+        len = strlen(DBUS_ERROR_NO_REPLY);
+
+        /* Increase failed pong count */
+        if (strnlen(dbus_error_name, len + 1) == len
+                && strncmp(dbus_error_name, DBUS_ERROR_NO_REPLY, len) == 0) {
+            DEBUG(SSSDBG_CRIT_FAILURE,
+                  ("A service PING timed out on [%s]. "
+                   "Attempt [%d]\n",
+                   svc->name, svc->failed_pongs));
+            svc->failed_pongs++;
             break;
+        }
 
-        DEBUG(0,("A service PING returned an error [%s], closing connection.\n",
-                 dbus_error_name));
+        DEBUG(SSSDBG_FATAL_FAILURE,
+              ("A service PING returned an error [%s], closing connection.\n",
+               dbus_error_name));
         /* Falling through to default intentionally*/
     default:
         /*
@@ -2390,11 +2418,12 @@ int main(int argc, const char *argv[])
 
     CONVERT_AND_SET_DEBUG_LEVEL(debug_level);
 
-    /* If the level or timestamps was passed at the command-line, we want
-     * to save it and pass it to the children later.
+    /* If the level, timestamps or microseconds was passed at the command-line,
+     * we want to save it and pass it to the children later.
      */
     cmdline_debug_level = debug_level;
     cmdline_debug_timestamps = debug_timestamps;
+    cmdline_debug_microseconds = debug_microseconds;
 
     if (opt_daemon && opt_interactive) {
         fprintf(stderr, "Option -i|--interactive is not allowed together with -D|--daemon\n");
