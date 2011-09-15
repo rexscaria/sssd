@@ -25,7 +25,22 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/param.h>
+#include <sys/stat.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <sudo_plugin.h>
+#include <security/pam_appl.h>
+#include <security/pam_misc.h>
+#include <dbus/dbus.h>
+#include "dhash.h"
+#include "sbus/sssd_dbus_messages_helpers.h"
+#include "sss_sudo_cli.h"
+#include "config.h"
 
 /*
  * Define to the version of sudo package
@@ -35,59 +50,6 @@
 #ifndef _PATH_VI
 #define _PATH_VI "/bin/vi"
 #endif
-
-#include "config.h"
-#include<unistd.h>
-#include <sys/types.h>
-#include <sys/param.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
-#include <stdint.h>
-
-#include <stdio.h>
-#ifdef STDC_HEADERS
-# include <stdlib.h>
-# include <stddef.h>
-#else
-# ifdef HAVE_STDLIB_H
-#  include <stdlib.h>
-# endif
-#endif /* STDC_HEADERS */
-
-
-#ifdef HAVE_STRING_H
-# if defined(HAVE_MEMORY_H) && !defined(STDC_HEADERS)
-#  include <memory.h>
-# endif
-# include <string.h>
-#endif /* HAVE_STRING_H */
-#ifdef HAVE_STRINGS_H
-# include <strings.h>
-#endif /* HAVE_STRINGS_H */
-
-
-#ifdef HAVE_UNISTD_H
-# include <unistd.h>
-#endif /* HAVE_UNISTD_H */
-#include <ctype.h>
-#include <fcntl.h>
-#include <limits.h>
-#include <grp.h>
-#include <pwd.h>
-#include <stdarg.h>
-
-#include <sudo_plugin.h>
-
-#include <security/pam_appl.h>
-#include <security/pam_misc.h>
-
-#include <dbus/dbus.h>
-#include "dhash.h"
-
-#include "sss_sudo_cli.h"
-
-#include "sbus/sssd_dbus_messages_helpers.h"
-
 
 #ifdef __TANDEM
 /* If it is a tandem system */

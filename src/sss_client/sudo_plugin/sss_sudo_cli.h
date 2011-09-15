@@ -20,10 +20,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 
-
 #ifndef _SSS_SUDO_CLI_H_
 #define _SSS_SUDO_CLI_H_
-
 
 #ifndef SSS_SUDO_SERVICE_PIPE
 #define SSS_SUDO_SERVICE_PIPE "unix:path=" PIPE_PATH "/sudo"
